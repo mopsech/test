@@ -1,5 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v2.1 =====
+-- ===== PLANT HUB v2.2 =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -80,9 +80,9 @@ local Settings = {
     FlySpeed = 100,
     MaxFlySpeed = 1000,
     BHopEnabled = false,
-    BHopSpeed = 30,
-    BHopAutoJump = false,
+    BHopSpeed = 50,
     SpinBotEnabled = false,
+    SpinBotSpeed = 9999,
     
     -- Combat
     NoclipEnabled = false,
@@ -1195,112 +1195,93 @@ local function stopFly()
 end
 
 -- ========================================
--- ===== BUNNY HOP (РАБОЧИЙ С АВТО) =====
+-- ===== BUNNY HOP (АВТОДЖАМП + РАЗГОН) =====
 -- ========================================
 
+local BHop = {
+    Enabled = false,
+    Speed = 50,
+}
 local bhopConnection = nil
-local bhopActive = false
 local bhopJumpCooldown = 0
 
-local function setupBunnyHop()
-    if Settings.BHopEnabled then
-        bhopActive = true
+local function setupBHop()
+    if BHop.Enabled then
         safeDisconnect(bhopConnection)
         
         bhopConnection = RunService.RenderStepped:Connect(function()
-            if not bhopActive or not LocalPlayer.Character then
-                bhopActive = false
-                return
-            end
+            if not BHop.Enabled or not LocalPlayer.Character then return end
             
             local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             
             if not humanoid or not hrp then return end
             
-            local spaceHeld = UserInputService:IsKeyDown(Enum.KeyCode.Space)
-            local isMoving = UserInputService:IsKeyDown(Enum.KeyCode.W) or 
-                            UserInputService:IsKeyDown(Enum.KeyCode.A) or 
-                            UserInputService:IsKeyDown(Enum.KeyCode.S) or 
-                            UserInputService:IsKeyDown(Enum.KeyCode.D)
-            
-            local shouldJump = false
-            
-            -- АВТО-ДЖАМП (если включен)
-            if Settings.BHopAutoJump then
-                if humanoid:GetState() == Enum.HumanoidStateType.Landed and isMoving then
-                    shouldJump = true
-                end
-            else
-                -- Ручной BHop (при зажатом пробеле)
-                if spaceHeld and humanoid:GetState() == Enum.HumanoidStateType.Landed then
-                    shouldJump = true
-                end
-            end
-            
-            if shouldJump and tick() - bhopJumpCooldown > 0.05 then
-                humanoid.Jump = true
-                bhopJumpCooldown = tick()
+            -- АВТОДЖАМП ВСЕГДА ВКЛЮЧЕН
+            if humanoid:GetState() == Enum.HumanoidStateType.Landed then
+                local isMoving = UserInputService:IsKeyDown(Enum.KeyCode.W) or 
+                                UserInputService:IsKeyDown(Enum.KeyCode.A) or 
+                                UserInputService:IsKeyDown(Enum.KeyCode.S) or 
+                                UserInputService:IsKeyDown(Enum.KeyCode.D)
                 
-                -- Ускорение
-                local moveDir = Vector3.new(0, 0, 0)
-                local camCF = Camera.CFrame
-                
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                    moveDir = moveDir + camCF.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                    moveDir = moveDir - camCF.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                    moveDir = moveDir - camCF.RightVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                    moveDir = moveDir + camCF.RightVector
-                end
-                
-                if moveDir.Magnitude > 0 then
-                    moveDir = moveDir.Unit * Settings.BHopSpeed
-                    hrp.Velocity = Vector3.new(moveDir.X, hrp.Velocity.Y, moveDir.Z)
+                if isMoving and tick() - bhopJumpCooldown > 0.05 then
+                    humanoid.Jump = true
+                    bhopJumpCooldown = tick()
+                    
+                    -- РАЗГОН
+                    local moveDir = Vector3.new(0, 0, 0)
+                    local camCF = Camera.CFrame
+                    
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                        moveDir = moveDir + camCF.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                        moveDir = moveDir - camCF.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                        moveDir = moveDir - camCF.RightVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                        moveDir = moveDir + camCF.RightVector
+                    end
+                    
+                    if moveDir.Magnitude > 0 then
+                        moveDir = moveDir.Unit * BHop.Speed
+                        hrp.Velocity = Vector3.new(moveDir.X, hrp.Velocity.Y, moveDir.Z)
+                    end
                 end
             end
         end)
     else
-        bhopActive = false
         safeDisconnect(bhopConnection)
         bhopConnection = nil
     end
 end
 
 -- ========================================
--- ===== SPIN BOT (300°/СЕК) =====
+-- ===== СПИН БОТ (АНТИ-АИМ) =====
 -- ========================================
 
+local SpinBot = {
+    Enabled = false,
+    Speed = 9999,
+}
 local spinConnection = nil
-local spinActive = false
-local spinAngularVelocity = 300  -- Градусов в секунду
 
 local function setupSpinBot()
-    if Settings.SpinBotEnabled then
-        spinActive = true
+    if SpinBot.Enabled then
         safeDisconnect(spinConnection)
         
         spinConnection = RunService.Heartbeat:Connect(function()
-            if not spinActive or not LocalPlayer.Character then
-                spinActive = false
-                return
-            end
+            if not SpinBot.Enabled or not LocalPlayer.Character then return end
             
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                -- 300° в секунду = 5 радиан в секунду
-                -- За 1 хартбит (0.016с) поворачиваем на 0.08 радиан
-                local angle = math.rad(spinAngularVelocity) * 0.016
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, angle, 0)
+                -- ВРАЩАЕМ МАКСИМАЛЬНО БЫСТРО (АНТИ-АИМ)
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed), 0)
             end
         end)
     else
-        spinActive = false
         safeDisconnect(spinConnection)
         spinConnection = nil
     end
@@ -1469,51 +1450,45 @@ RageSection2:Input({
     end
 })
 
-RageSection2:Input({
-    Title = "Max Speed",
-    Default = "1000",
-    Placeholder = "1000",
-    Callback = function(value)
-        local num = tonumber(value)
-        if num then Settings.MaxFlySpeed = num end
-    end
-})
-
--- BUNNY HOP
+-- ===== BUNNY HOP (АВТОДЖАМП + РАЗГОН) =====
 RageSection:Toggle({
-    Title = "Bunny Hop",
+    Title = "Bunny Hop (AutoJump + Speed)",
     Default = false,
     Callback = function(value)
+        BHop.Enabled = value
         Settings.BHopEnabled = value
-        setupBunnyHop()
-    end
-})
-
-RageSection:Toggle({
-    Title = "Auto Jump",
-    Default = false,
-    Callback = function(value)
-        Settings.BHopAutoJump = value
+        setupBHop()
     end
 })
 
 RageSection:Input({
     Title = "BHop Speed",
-    Default = "30",
-    Placeholder = "30",
+    Default = "50",
+    Placeholder = "50",
     Callback = function(value)
         local num = tonumber(value)
-        if num then Settings.BHopSpeed = math.clamp(num, 10, 80) end
+        if num then BHop.Speed = math.clamp(num, 10, 100) end
     end
 })
 
--- SPIN BOT (300°/СЕК)
+-- ===== SPIN BOT (АНТИ-АИМ) =====
 RageSection:Toggle({
-    Title = "Spin Bot (300°/s)",
+    Title = "Spin Bot (Anti-Aim)",
     Default = false,
     Callback = function(value)
+        SpinBot.Enabled = value
         Settings.SpinBotEnabled = value
         setupSpinBot()
+    end
+})
+
+RageSection:Input({
+    Title = "Spin Speed",
+    Default = "9999",
+    Placeholder = "9999",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then SpinBot.Speed = num end
     end
 })
 
@@ -1930,7 +1905,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlantHub v2.1",
+    Title = "PlantHub v2.2",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -1986,9 +1961,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlantHub v2.1 Loaded!")
+print("✅ PlantHub v2.2 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlantHub v2.1 | By MMV and MM2",
+    Text = "PlantHub v2.2 | By MMV and MM2",
     Duration = 5
 })
