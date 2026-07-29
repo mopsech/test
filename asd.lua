@@ -1,5 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v2.3 FIXED FULL =====
+-- ===== PLANT HUB v3.0 HARDCORE =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -15,7 +15,7 @@ local Window = WindUI:CreateWindow({
     Title = "PlanetHub",
     Author = "MMV & MM2",
     Icon = "crown",
-    Folder = "PlantHubSettings",
+    Folder = "PlanetHubSettings",
     Size = UDim2.fromOffset(720, 600),
     Resizable = true,
     Transparent = true,
@@ -35,10 +35,8 @@ local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
-local InsertService = game:GetService("InsertService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
 
 -- ========================================
 -- ===== НАСТРОЙКИ =====
@@ -50,24 +48,15 @@ local Settings = {
     InnocentESP = false,
     SkeletonESP = false,
     ChamsEnabled = false,
+    ChamsThroughWalls = false,
     JumpCircles = false,
     Trails = false,
-    FogEnabled = false,
     ParticlesEnabled = false,
     RGBHumanoid = false,
-    NimbEnabled = false,
     XRayEnabled = false,
-    WingsEnabled = false,
-    ParticleCount = 100,
-    ParticleRange = 50,
-    BloomEnabled = false,
-    ColorCorrectionEnabled = false,
-    VignetteEnabled = false,
-    CustomSkyId = "",
     CrosshairEnabled = false,
     FlyEnabled = false,
     FlySpeed = 100,
-    MaxFlySpeed = 1000,
     BHopEnabled = false,
     BHopSpeed = 50,
     SpinBotEnabled = false,
@@ -81,6 +70,7 @@ local Settings = {
     AutoFarmSpeed = 20,
     AutoFarmCoinLimit = 40,
     AutoFarmCoinDelay = 0.15,
+    AutoRespawn = false,
 }
 
 -- ========================================
@@ -99,15 +89,10 @@ local Cache = {
     PostEffects = {},
     JumpTracking = {},
     RGBConnection = nil,
-    NimbConnection = nil,
-    NimbPart = nil,
     AutoFarmConnection = nil,
     CurrentTween = nil,
     XRayParts = {},
-    WingsPart = nil,
-    WingsLeftPart = nil,
-    WingsConnection = nil,
-    WingsParticles = {},
+    ChamsESP = {},
 }
 
 local COLORS = {
@@ -178,6 +163,151 @@ local function getRoleColor(player)
 end
 
 -- ========================================
+-- ===== CHAMS ЧЕРЕЗ СТЕНЫ + ДИСТАНЦИЯ =====
+-- ========================================
+
+local function cacheCharacterParts(player)
+    if not player or not player.Character then return end
+    local list = {}
+    for _, part in ipairs(player.Character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            list[part] = {
+                ogMaterial = part.Material,
+                ogColor = part.Color,
+                ogTransparency = part.Transparency,
+            }
+        end
+    end
+    Cache.ChamsPartsList[player.UserId] = list
+end
+
+-- Функция для создания текста расстояния
+local function createDistanceText(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    -- Удаляем старый текст
+    local oldText = char:FindFirstChild("ChamsDistanceText")
+    if oldText then oldText:Destroy() end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ChamsDistanceText"
+    billboard.Size = UDim2.new(0, 100, 0, 30)
+    billboard.Adornee = head
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = char
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeTransparency = 0.3
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Parent = billboard
+
+    Cache.ChamsESP[player.UserId] = {billboard = billboard, label = label}
+end
+
+local function updateDistanceText(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp or not myHrp then return end
+
+    local dist = (myHrp.Position - hrp.Position).Magnitude
+    local data = Cache.ChamsESP[player.UserId]
+    if data and data.label then
+        data.label.Text = string.format("%.1f studs", dist)
+        -- Цвет текста в зависимости от роли
+        data.label.TextColor3 = getRoleColor(player)
+    end
+end
+
+local function applyChams(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local list = Cache.ChamsPartsList[player.UserId]
+    if not list then
+        cacheCharacterParts(player)
+        list = Cache.ChamsPartsList[player.UserId]
+        if not list then return end
+    end
+
+    -- Создаём текст расстояния если включено
+    if Settings.ChamsEnabled and not Cache.ChamsESP[player.UserId] then
+        createDistanceText(player)
+    end
+
+    for part, _ in pairs(list) do
+        if part and part.Parent then
+            part.Material = Enum.Material.ForceField
+            part.Color = getRoleColor(player)
+            if Settings.ChamsThroughWalls then
+                part.Transparency = 0.2
+                part.LocalTransparencyModifier = 0.1
+            else
+                part.Transparency = 0.3
+                part.LocalTransparencyModifier = 1
+            end
+        end
+    end
+end
+
+local function removeChams(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local list = Cache.ChamsPartsList[player.UserId]
+    if not list then return end
+
+    -- Удаляем текст расстояния
+    local espData = Cache.ChamsESP[player.UserId]
+    if espData then
+        pcall(function() espData.billboard:Destroy() end)
+        Cache.ChamsESP[player.UserId] = nil
+    end
+
+    for part, data in pairs(list) do
+        if part and part.Parent then
+            pcall(function()
+                part.Material = data.ogMaterial
+                part.Color = data.ogColor
+                part.Transparency = data.ogTransparency
+                part.LocalTransparencyModifier = 1
+            end)
+        end
+    end
+    Cache.ChamsPartsList[player.UserId] = nil
+end
+
+local function clearAllChams()
+    for userId, list in pairs(Cache.ChamsPartsList) do
+        for part, data in pairs(list) do
+            if part and part.Parent then
+                pcall(function()
+                    part.Material = data.ogMaterial
+                    part.Color = data.ogColor
+                    part.Transparency = data.ogTransparency
+                    part.LocalTransparencyModifier = 1
+                end)
+            end
+        end
+    end
+    Cache.ChamsPartsList = {}
+    Cache.ChamsParts = {}
+
+    for userId, espData in pairs(Cache.ChamsESP) do
+        pcall(function() espData.billboard:Destroy() end)
+    end
+    Cache.ChamsESP = {}
+end
+
+-- ========================================
 -- ===== HIGHLIGHT ESP =====
 -- ========================================
 
@@ -211,74 +341,6 @@ local function clearAllHighlights()
         if highlight then pcall(function() highlight:Destroy() end) end
     end
     Cache.Highlights = {}
-end
-
--- ========================================
--- ===== CHAMS =====
--- ========================================
-
-local function cacheCharacterParts(player)
-    if not player or not player.Character then return end
-    local list = {}
-    for _, part in ipairs(player.Character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            list[part] = {
-                ogMaterial = part.Material,
-                ogColor = part.Color,
-                ogTransparency = part.Transparency,
-            }
-        end
-    end
-    Cache.ChamsPartsList[player.UserId] = list
-end
-
-local function applyChams(player)
-    if not player or not player.Character then return end
-    local list = Cache.ChamsPartsList[player.UserId]
-    if not list then
-        cacheCharacterParts(player)
-        list = Cache.ChamsPartsList[player.UserId]
-        if not list then return end
-    end
-    for part, _ in pairs(list) do
-        if part and part.Parent then
-            part.Material = Enum.Material.ForceField
-            part.Color = COLORS.Purple
-            part.Transparency = 0.3
-        end
-    end
-end
-
-local function removeChams(player)
-    if not player or not player.Character then return end
-    local list = Cache.ChamsPartsList[player.UserId]
-    if not list then return end
-    for part, data in pairs(list) do
-        if part and part.Parent then
-            pcall(function()
-                part.Material = data.ogMaterial
-                part.Color = data.ogColor
-                part.Transparency = data.ogTransparency
-            end)
-        end
-    end
-    Cache.ChamsPartsList[player.UserId] = nil
-end
-
-local function clearAllChams()
-    for userId, list in pairs(Cache.ChamsPartsList) do
-        for part, data in pairs(list) do
-            if part and part.Parent then
-                pcall(function()
-                    part.Material = data.ogMaterial
-                    part.Color = data.ogColor
-                    part.Transparency = data.ogTransparency
-                end)
-            end
-        end
-    end
-    Cache.ChamsPartsList = {}
-    Cache.ChamsParts = {}
 end
 
 -- ========================================
@@ -316,67 +378,6 @@ local function setupRGBHumanoid()
 end
 
 -- ========================================
--- ===== NIMB (HALO) =====
--- ========================================
-
-local function setupNimb()
-    if Settings.NimbEnabled then
-        if not LocalPlayer.Character then return end
-        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        if Cache.NimbPart then
-            pcall(function() Cache.NimbPart:Destroy() end)
-            Cache.NimbPart = nil
-        end
-        local nimb = Instance.new("Part")
-        nimb.Name = "Nimb"
-        nimb.Shape = Enum.PartType.Ball
-        nimb.Size = Vector3.new(3.5, 0.35, 3.5)
-        nimb.Material = Enum.Material.Neon
-        nimb.Color = COLORS.Purple
-        nimb.Transparency = 0.2
-        nimb.CanCollide = false
-        nimb.Anchored = false
-        nimb.TopSurface = Enum.SurfaceType.Smooth
-        nimb.BottomSurface = Enum.SurfaceType.Smooth
-        nimb.Parent = LocalPlayer.Character
-
-        local mesh = Instance.new("SpecialMesh")
-        mesh.MeshType = Enum.MeshType.FileMesh
-        mesh.MeshId = "rbxassetid://3270017"
-        mesh.Scale = Vector3.new(1.2, 0.15, 1.2)
-        mesh.Parent = nimb
-
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = nimb
-        weld.Part1 = hrp
-        weld.Parent = nimb
-
-        nimb.CFrame = hrp.CFrame + Vector3.new(0, 3.5, 0)
-        Cache.NimbPart = nimb
-
-        safeDisconnect(Cache.NimbConnection)
-        Cache.NimbConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.NimbEnabled or not Cache.NimbPart or not Cache.NimbPart.Parent then
-                safeDisconnect(Cache.NimbConnection)
-                Cache.NimbConnection = nil
-                return
-            end
-            local t = tick()
-            Cache.NimbPart.Color = Color3.fromHSV(t % 1, 1, 1)
-            Cache.NimbPart.CFrame = Cache.NimbPart.CFrame * CFrame.Angles(0, math.rad(3), 0)
-        end)
-    else
-        safeDisconnect(Cache.NimbConnection)
-        Cache.NimbConnection = nil
-        if Cache.NimbPart then
-            pcall(function() Cache.NimbPart:Destroy() end)
-            Cache.NimbPart = nil
-        end
-    end
-end
-
--- ========================================
 -- ===== XRAY =====
 -- ========================================
 
@@ -399,318 +400,62 @@ local function setupXRay()
 end
 
 -- ========================================
--- ===== WINGS (FIXED) =====
+-- ===== CROSSHAIR (꩜) =====
 -- ========================================
 
-local function clearWings()
-    safeDisconnect(Cache.WingsConnection)
-    Cache.WingsConnection = nil
+local crosshairGui = nil
+local shiftLockConn = nil
 
-    for _, emitter in ipairs(Cache.WingsParticles) do
-        pcall(function() emitter:Destroy() end)
-    end
-    Cache.WingsParticles = {}
+local function createCrosshair()
+    if crosshairGui then crosshairGui:Destroy() end
+    crosshairGui = Instance.new("ScreenGui")
+    crosshairGui.Name = "Crosshair"
+    crosshairGui.ResetOnSpawn = false
+    crosshairGui.IgnoreGuiInset = true
+    crosshairGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    if Cache.WingsPart then
-        pcall(function() Cache.WingsPart:Destroy() end)
-        Cache.WingsPart = nil
-    end
-    if Cache.WingsLeftPart then
-        pcall(function() Cache.WingsLeftPart:Destroy() end)
-        Cache.WingsLeftPart = nil
-    end
-end
+    -- Используем Unicode символ ꩜
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 50, 0, 50)
+    label.Position = UDim2.new(0.5, -25, 0.5, -25)
+    label.BackgroundTransparency = 1
+    label.Text = "꩜"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeTransparency = 0.5
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Parent = crosshairGui
 
-local function createManualWings()
-    local character = LocalPlayer.Character
-    if not character then return end
+    crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-    local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-    if not torso then return end
-
-    local function createWingPart(side, offsetX, angle)
-        local wing = Instance.new("Part")
-        wing.Name = "Wing_" .. side
-        wing.Size = Vector3.new(0.3, 2.5, 4)
-        wing.Material = Enum.Material.Neon
-        wing.Color = COLORS.Purple
-        wing.Transparency = 0.15
-        wing.CanCollide = false
-        wing.Anchored = false
-        wing.TopSurface = Enum.SurfaceType.Smooth
-        wing.BottomSurface = Enum.SurfaceType.Smooth
-        wing.Parent = character
-
-        local mesh = Instance.new("SpecialMesh")
-        mesh.MeshType = Enum.MeshType.FileMesh
-        mesh.MeshId = "rbxassetid://1285237"
-        mesh.Scale = Vector3.new(1.5, 1.5, 1.5)
-        mesh.Parent = wing
-
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = wing
-        weld.Part1 = torso
-        weld.Parent = wing
-
-        wing.CFrame = torso.CFrame * CFrame.new(offsetX, 0.5, 0.8) * CFrame.Angles(0, angle, 0)
-
-        -- Эмиттер частиц
-        local emitter = Instance.new("ParticleEmitter")
-        emitter.Texture = "rbxassetid://241685484"
-        emitter.LightEmission = 1
-        emitter.LightInfluence = 0
-        emitter.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, COLORS.Purple),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
-        })
-        emitter.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.25),
-            NumberSequenceKeypoint.new(0.5, 0.12),
-            NumberSequenceKeypoint.new(1, 0),
-        })
-        emitter.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        emitter.Speed = NumberRange.new(1, 4)
-        emitter.Lifetime = NumberRange.new(0.4, 1.0)
-        emitter.Rate = 25
-        emitter.SpreadAngle = Vector2.new(40, 40)
-        emitter.RotSpeed = NumberRange.new(-30, 30)
-        emitter.Rotation = NumberRange.new(0, 360)
-        emitter.Parent = wing
-        table.insert(Cache.WingsParticles, emitter)
-
-        -- Искровой эмиттер
-        local sparkEmitter = Instance.new("ParticleEmitter")
-        sparkEmitter.Texture = "rbxassetid://1266576587"
-        sparkEmitter.LightEmission = 1
-        sparkEmitter.LightInfluence = 0
-        sparkEmitter.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(1, COLORS.Purple),
-        })
-        sparkEmitter.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.08),
-            NumberSequenceKeypoint.new(1, 0),
-        })
-        sparkEmitter.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        sparkEmitter.Speed = NumberRange.new(2, 6)
-        sparkEmitter.Lifetime = NumberRange.new(0.2, 0.6)
-        sparkEmitter.Rate = 15
-        sparkEmitter.SpreadAngle = Vector2.new(50, 50)
-        sparkEmitter.Parent = wing
-        table.insert(Cache.WingsParticles, sparkEmitter)
-
-        return wing
+    -- Убираем ShiftLock текстуру
+    if not Settings.CrosshairEnabled then
+        safeDisconnect(shiftLockConn)
+        return
     end
 
-    local leftWing = createWingPart("Left", -2.5, math.rad(30))
-    local rightWing = createWingPart("Right", 2.5, math.rad(-30))
-
-    Cache.WingsPart = rightWing
-    Cache.WingsLeftPart = leftWing
-
-    -- Анимация
-    safeDisconnect(Cache.WingsConnection)
-    Cache.WingsConnection = RunService.Heartbeat:Connect(function()
-        if not Settings.WingsEnabled then
-            safeDisconnect(Cache.WingsConnection)
-            Cache.WingsConnection = nil
+    shiftLockConn = RunService.RenderStepped:Connect(function()
+        if not Settings.CrosshairEnabled then
+            safeDisconnect(shiftLockConn)
+            shiftLockConn = nil
             return
         end
-
-        local t = tick()
-        local color = Color3.fromHSV(t % 1, 1, 1)
-
-        if Cache.WingsPart and Cache.WingsPart.Parent then
-            Cache.WingsPart.Color = color
+        -- Убираем стандартный ShiftLock
+        local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
+        if shiftLock then
+            shiftLock.Enabled = false
+            shiftLock.ResetOnSpawn = false
         end
-        if Cache.WingsLeftPart and Cache.WingsLeftPart.Parent then
-            Cache.WingsLeftPart.Color = color
-        end
-
-        for _, emitter in ipairs(Cache.WingsParticles) do
-            if emitter and emitter.Parent then
-                pcall(function()
-                    emitter.Color = ColorSequence.new({
-                        ColorSequenceKeypoint.new(0, color),
-                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
-                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
-                    })
-                end)
+        -- Убираем другие текстурки прицела
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
+            if gui.Name:lower():find("crosshair") or gui.Name:lower():find("aim") then
+                if gui ~= crosshairGui then
+                    gui.Enabled = false
+                end
             end
         end
     end)
-end
-
-local function setupWings()
-    clearWings()
-
-    if not Settings.WingsEnabled then return end
-    if not LocalPlayer.Character then
-        task.wait(0.5)
-        if not LocalPlayer.Character then return end
-    end
-
-    -- ПЫТАЕМСЯ ЗАГРУЗИТЬ МОДЕЛЬ (ТИХО ПАДАЕМ)
-    local success, model = pcall(function()
-        return InsertService:LoadAsset(114504871813760)
-    end)
-
-    if success and model then
-        local wingPart = model:FindFirstChildOfClass("BasePart") or model:FindFirstChildOfClass("MeshPart")
-        if wingPart then
-            wingPart.Parent = LocalPlayer.Character
-            wingPart.CanCollide = false
-            wingPart.Anchored = false
-
-            local torso = LocalPlayer.Character:FindFirstChild("UpperTorso") or LocalPlayer.Character:FindFirstChild("Torso")
-            if torso then
-                local weld = Instance.new("WeldConstraint")
-                weld.Part0 = wingPart
-                weld.Part1 = torso
-                weld.Parent = wingPart
-                wingPart.CFrame = torso.CFrame * CFrame.new(0, 0.5, 1.5)
-            end
-
-            Cache.WingsPart = wingPart
-            pcall(function() model:Destroy() end)
-            return
-        end
-        pcall(function() model:Destroy() end)
-    end
-
-    -- ЗАПАСНОЙ ВАРИАНТ
-    createManualWings()
-end
-
--- ========================================
--- ===== SKELETON ESP =====
--- ========================================
-
-local SKELETON_BONES = {
-    {"Head", "UpperTorso"},
-    {"UpperTorso", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"RightLowerArm", "RightHand"},
-    {"UpperTorso", "LowerTorso"},
-    {"LowerTorso", "LeftUpperLeg"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"},
-}
-
-local function cacheBoneParts(player)
-    if not player or not player.Character then return end
-    local parts = {}
-    for _, bone in ipairs(SKELETON_BONES) do
-        parts[bone[1]] = player.Character:FindFirstChild(bone[1])
-        parts[bone[2]] = player.Character:FindFirstChild(bone[2])
-    end
-    Cache.BoneParts[player.UserId] = parts
-end
-
-local function createSkeletonForPlayer(player)
-    if not player or player == LocalPlayer or not player.Character then return end
-    if Cache.Bones[player.UserId] then return end
-
-    cacheBoneParts(player)
-
-    local bones = {}
-    for _, bonePair in ipairs(SKELETON_BONES) do
-        local line = Drawing.new("Line")
-        line.Thickness = 2
-        line.Transparency = 0.8
-        line.Visible = false
-        table.insert(bones, {pair = bonePair, line = line})
-    end
-
-    Cache.Bones[player.UserId] = bones
-end
-
-local function updateSkeletonBone(player, bone1Name, bone2Name, line)
-    if not player or not player.Character then
-        line.Visible = false
-        return false
-    end
-
-    local parts = Cache.BoneParts[player.UserId]
-    if not parts then
-        cacheBoneParts(player)
-        parts = Cache.BoneParts[player.UserId]
-        if not parts then
-            line.Visible = false
-            return false
-        end
-    end
-
-    local bone1 = parts[bone1Name]
-    local bone2 = parts[bone2Name]
-
-    if not bone1 or not bone1.Parent then
-        bone1 = player.Character:FindFirstChild(bone1Name)
-        if bone1 then parts[bone1Name] = bone1 end
-    end
-    if not bone2 or not bone2.Parent then
-        bone2 = player.Character:FindFirstChild(bone2Name)
-        if bone2 then parts[bone2Name] = bone2 end
-    end
-
-    if not bone1 or not bone2 then
-        line.Visible = false
-        return false
-    end
-
-    local s1, p1 = Camera:WorldToScreenPoint(bone1.Position)
-    local s2, p2 = Camera:WorldToScreenPoint(bone2.Position)
-
-    if s1.Z > 0 and s2.Z > 0 then
-        line.From = Vector2.new(p1.X, p1.Y)
-        line.To = Vector2.new(p2.X, p2.Y)
-        line.Visible = true
-        line.Color = getRoleColor(player)
-        return true
-    else
-        line.Visible = false
-        return false
-    end
-end
-
-local function updateAllSkeletons()
-    for userId, bones in pairs(Cache.Bones) do
-        local player = Players:GetPlayerByUserId(userId)
-        if not player or not Settings.SkeletonESP then
-            for _, bone in ipairs(bones) do
-                pcall(function() bone.line:Remove() end)
-            end
-            Cache.Bones[userId] = nil
-            Cache.BoneParts[userId] = nil
-        else
-            for _, bone in ipairs(bones) do
-                updateSkeletonBone(player, bone.pair[1], bone.pair[2], bone.line)
-            end
-        end
-    end
-end
-
-local function clearAllSkeletons()
-    for userId, bones in pairs(Cache.Bones) do
-        for _, bone in ipairs(bones) do
-            pcall(function() bone.line:Remove() end)
-        end
-    end
-    Cache.Bones = {}
-    Cache.BoneParts = {}
 end
 
 -- ========================================
@@ -834,236 +579,7 @@ local function createLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== СИСТЕМА ЧАСТИЦ =====
--- ========================================
-
-local particleSpawnConnection = nil
-local activeParticles = {}
-
-local function createOptimizedParticle(position)
-    local att = Instance.new("Attachment")
-    att.Parent = Workspace
-    att.WorldPosition = position
-
-    local att2 = Instance.new("Attachment")
-    att2.Parent = Workspace
-    att2.WorldPosition = position + Vector3.new(0.1, 0, 0)
-
-    local trail = Instance.new("Trail")
-    trail.Attachment0 = att
-    trail.Attachment1 = att2
-    trail.Lifetime = 8
-    trail.MinLength = 0
-    trail.FaceCamera = true
-    trail.LightEmission = 1
-    trail.LightInfluence = 0
-    trail.Color = ColorSequence.new(COLORS.Purple)
-    trail.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 1)
-    })
-    trail.Parent = att
-
-    local particle = {
-        att = att,
-        att2 = att2,
-        trail = trail,
-        lifetime = 8,
-        startTime = tick(),
-        velocity = Vector3.new(math.random(-10, 10), -5, math.random(-10, 10)),
-        position = position
-    }
-
-    table.insert(activeParticles, particle)
-    return particle
-end
-
-local function updateParticles()
-    if not Settings.ParticlesEnabled then return end
-    local toRemove = {}
-    for i, particle in ipairs(activeParticles) do
-        local elapsed = tick() - particle.startTime
-        if elapsed >= particle.lifetime or not particle.att or not particle.att.Parent then
-            pcall(function()
-                particle.trail:Destroy()
-                particle.att:Destroy()
-                particle.att2:Destroy()
-            end)
-            table.insert(toRemove, i)
-        else
-            particle.position = particle.position + particle.velocity * 0.016
-            particle.att.WorldPosition = particle.position
-            particle.att2.WorldPosition = particle.position + Vector3.new(0.1, 0, 0)
-        end
-    end
-    for i = #toRemove, 1, -1 do
-        table.remove(activeParticles, toRemove[i])
-    end
-end
-
-local function spawnParticles()
-    if not Settings.ParticlesEnabled then return end
-    for i = 1, 3 do
-        local randomPos = Vector3.new(
-            math.random(-Settings.ParticleRange, Settings.ParticleRange),
-            math.random(50, 150),
-            math.random(-Settings.ParticleRange, Settings.ParticleRange)
-        )
-        createOptimizedParticle(randomPos)
-    end
-end
-
-local function clearAllParticles()
-    for _, particle in ipairs(activeParticles) do
-        pcall(function()
-            particle.trail:Destroy()
-            particle.att:Destroy()
-            particle.att2:Destroy()
-        end)
-    end
-    activeParticles = {}
-end
-
--- ========================================
--- ===== POST-EFFECTS =====
--- ========================================
-
-local function setupBloom(enabled)
-    if enabled then
-        Lighting.Brightness = 1.5
-    else
-        Lighting.Brightness = 1
-    end
-end
-
-local function setupColorCorrection(enabled)
-    if enabled then
-        Lighting.Ambient = COLORS.Purple
-        Lighting.OutdoorAmbient = COLORS.Purple
-    else
-        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
-        Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
-    end
-end
-
-local function setupVignette(enabled)
-    if enabled then
-        if not Cache.PostEffects["vignette"] then
-            local screenGui = Instance.new("ScreenGui")
-            screenGui.Name = "VignetteEffect"
-            screenGui.ResetOnSpawn = false
-            screenGui.IgnoreGuiInset = true
-
-            local vignette = Instance.new("Frame")
-            vignette.Name = "VignetteFrame"
-            vignette.Size = UDim2.new(1, 0, 1, 0)
-            vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            vignette.BackgroundTransparency = 0.5
-            vignette.BorderSizePixel = 0
-            vignette.Parent = screenGui
-
-            screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-            Cache.PostEffects["vignette"] = screenGui
-        end
-    else
-        if Cache.PostEffects["vignette"] then
-            pcall(function() Cache.PostEffects["vignette"]:Destroy() end)
-            Cache.PostEffects["vignette"] = nil
-        end
-    end
-end
-
-local function setupSky(skyId)
-    if skyId == "" then return end
-    local sky = Lighting:FindFirstChildOfClass("Sky")
-    if not sky then
-        sky = Instance.new("Sky")
-        sky.Parent = Lighting
-    end
-    if not skyId:find("rbxassetid://") then
-        skyId = "rbxassetid://" .. skyId
-    end
-    pcall(function()
-        sky.SkyboxBk = skyId
-        sky.SkyboxDn = skyId
-        sky.SkyboxFt = skyId
-        sky.SkyboxLf = skyId
-        sky.SkyboxRt = skyId
-        sky.SkyboxUp = skyId
-    end)
-end
-
--- ========================================
--- ===== CROSSHAIR =====
--- ========================================
-
-local crosshairGui = nil
-
-local function createCrosshair()
-    if crosshairGui then crosshairGui:Destroy() end
-    crosshairGui = Instance.new("ScreenGui")
-    crosshairGui.Name = "Crosshair"
-    crosshairGui.ResetOnSpawn = false
-    crosshairGui.IgnoreGuiInset = true
-
-    local size = 30
-
-    local horizontal = Instance.new("Frame")
-    horizontal.Size = UDim2.new(0, size, 0, 2)
-    horizontal.Position = UDim2.new(0.5, -size/2, 0.5, 0)
-    horizontal.BackgroundColor3 = COLORS.Purple
-    horizontal.BorderSizePixel = 0
-    horizontal.Parent = crosshairGui
-
-    local vertical = Instance.new("Frame")
-    vertical.Size = UDim2.new(0, 2, 0, size)
-    vertical.Position = UDim2.new(0.5, 0, 0.5, -size/2)
-    vertical.BackgroundColor3 = COLORS.Purple
-    vertical.BorderSizePixel = 0
-    vertical.Parent = crosshairGui
-
-    local center_dot = Instance.new("Frame")
-    center_dot.Size = UDim2.new(0, 4, 0, 4)
-    center_dot.Position = UDim2.new(0.5, -2, 0.5, -2)
-    center_dot.BackgroundColor3 = COLORS.Purple
-    center_dot.BorderSizePixel = 0
-    center_dot.Parent = crosshairGui
-
-    crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
--- ========================================
--- ===== WALL THOUGHT =====
--- ========================================
-
-local wallThoughtConnection = nil
-
-local function setupWallThought()
-    if Settings.WallThoughtEnabled then
-        safeDisconnect(wallThoughtConnection)
-        wallThoughtConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.WallThoughtEnabled or not LocalPlayer.Character then return end
-            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player == LocalPlayer or not player.Character then continue end
-                local theirHRP = player.Character:FindFirstChild("HumanoidRootPart")
-                local theirHumanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if not theirHRP or not theirHumanoid then continue end
-                local dist = (myHRP.Position - theirHRP.Position).Magnitude
-                if dist <= Settings.WallThoughtRadius then
-                    theirHumanoid.Health = 0
-                end
-            end
-        end)
-    else
-        safeDisconnect(wallThoughtConnection)
-        wallThoughtConnection = nil
-    end
-end
-
--- ========================================
--- ===== ANTI-AFK (FIXED) =====
+-- ===== ANTI-AFK =====
 -- ========================================
 
 local afkConnection = nil
@@ -1090,7 +606,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM =====
+-- ===== AUTO FARM + АВТОРЕСПАВН =====
 -- ========================================
 
 local function getCoinBag()
@@ -1219,6 +735,32 @@ local function collectCoin(coin)
     return success
 end
 
+-- АВТОРЕСПАВН при полном баге
+local function autoRespawn()
+    if not Settings.AutoRespawn then return end
+    local coinBag = getCurrentCoins()
+    if coinBag >= Settings.AutoFarmCoinLimit then
+        -- Ищем кнопку респавна
+        local respawnBtn = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+        if respawnBtn then
+            local btn = respawnBtn:FindFirstChild("Game")
+            if btn then
+                local respawn = btn:FindFirstChild("Respawn")
+                if respawn then
+                    pcall(function()
+                        respawn:FindFirstChild("RespawnButton"):Click()
+                    end)
+                end
+            end
+        end
+        StarterGui:SetCore("SendNotification", {
+            Title = "AutoFarm",
+            Text = "💀 Респавн! Баг полный!",
+            Duration = 2
+        })
+    end
+end
+
 local function farmLoop()
     while Settings.AutoFarmEnabled do
         local character = LocalPlayer.Character
@@ -1229,13 +771,19 @@ local function farmLoop()
 
         local currentCoins = getCurrentCoins()
         if currentCoins >= Settings.AutoFarmCoinLimit then
-            Settings.AutoFarmEnabled = false
-            StarterGui:SetCore("SendNotification", {
-                Title = "AutoFarm",
-                Text = "CoinBag полный! ✅",
-                Duration = 3
-            })
-            break
+            if Settings.AutoRespawn then
+                autoRespawn()
+                task.wait(3)
+                continue
+            else
+                Settings.AutoFarmEnabled = false
+                StarterGui:SetCore("SendNotification", {
+                    Title = "AutoFarm",
+                    Text = "CoinBag полный! ✅",
+                    Duration = 3
+                })
+                break
+            end
         end
 
         local validCoins = getValidCoins()
@@ -1284,7 +832,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== FLY (FIXED) =====
+-- ===== FLY =====
 -- ========================================
 
 local flyConnection = nil
@@ -1489,6 +1037,36 @@ local function setupSpinBot()
 end
 
 -- ========================================
+-- ===== WALL THOUGHT =====
+-- ========================================
+
+local wallThoughtConnection = nil
+
+local function setupWallThought()
+    if Settings.WallThoughtEnabled then
+        safeDisconnect(wallThoughtConnection)
+        wallThoughtConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.WallThoughtEnabled or not LocalPlayer.Character then return end
+            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return end
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player == LocalPlayer or not player.Character then continue end
+                local theirHRP = player.Character:FindFirstChild("HumanoidRootPart")
+                local theirHumanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if not theirHRP or not theirHumanoid then continue end
+                local dist = (myHRP.Position - theirHRP.Position).Magnitude
+                if dist <= Settings.WallThoughtRadius then
+                    theirHumanoid.Health = 0
+                end
+            end
+        end)
+    else
+        safeDisconnect(wallThoughtConnection)
+        wallThoughtConnection = nil
+    end
+end
+
+-- ========================================
 -- ===== MAIN UPDATE LOOP =====
 -- ========================================
 
@@ -1526,17 +1104,12 @@ local function updateVisuals()
                     removeChams(player)
                 end
             end
-
-            if Settings.SkeletonESP then
-                if not Cache.Bones[player.UserId] then
-                    createSkeletonForPlayer(player)
-                end
-            end
         end
-    end
 
-    if Settings.SkeletonESP then
-        updateAllSkeletons()
+        -- Обновляем расстояние для чамсов
+        if Settings.ChamsEnabled and Cache.ChamsESP[player.UserId] then
+            updateDistanceText(player)
+        end
     end
 
     if Settings.Trails then
@@ -1559,12 +1132,10 @@ end
 
 local function startMainUpdate()
     safeDisconnect(mainUpdateConnection)
-    safeDisconnect(particleSpawnConnection)
 
     mainUpdateConnection = RunService.Heartbeat:Connect(function()
         local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or
-                          Settings.ChamsEnabled or Settings.SkeletonESP or Settings.JumpCircles or
-                          Settings.Trails
+                          Settings.ChamsEnabled or Settings.Trails
 
         if anyActive then
             updateVisuals()
@@ -1573,19 +1144,7 @@ local function startMainUpdate()
         if Settings.JumpCircles then
             updateJumpCircles()
         end
-
-        if Settings.ParticlesEnabled then
-            updateParticles()
-        end
     end)
-
-    if Settings.ParticlesEnabled then
-        particleSpawnConnection = RunService.Heartbeat:Connect(function()
-            if Settings.ParticlesEnabled and math.random(1, 5) == 1 then
-                spawnParticles()
-            end
-        end)
-    end
 end
 
 -- ========================================
@@ -1829,18 +1388,33 @@ VisualSection:Toggle({
 })
 
 VisualSection:Toggle({
-    Title = "Chams",
+    Title = "Chams (Through Walls + Distance)",
     Default = false,
     Callback = function(v)
         Settings.ChamsEnabled = v
         if v then
             for _, player in ipairs(Players:GetPlayers()) do
                 cacheCharacterParts(player)
+                createDistanceText(player)
             end
         else
             clearAllChams()
         end
         startMainUpdate()
+    end
+})
+
+VisualSection:Toggle({
+    Title = "Chams Through Walls (Full X-Ray)",
+    Default = false,
+    Callback = function(v)
+        Settings.ChamsThroughWalls = v
+        -- Переприменяем чамсы
+        if Settings.ChamsEnabled then
+            for _, player in ipairs(Players:GetPlayers()) do
+                applyChams(player)
+            end
+        end
     end
 })
 
@@ -1892,15 +1466,6 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Nimb (Halo)",
-    Default = false,
-    Callback = function(v)
-        Settings.NimbEnabled = v
-        setupNimb()
-    end
-})
-
-VisualSection2:Toggle({
     Title = "XRay",
     Default = false,
     Callback = function(v)
@@ -1910,108 +1475,22 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Wings ✨ (FIXED)",
-    Default = false,
-    Callback = function(value)
-        Settings.WingsEnabled = value
-        setupWings()
-    end
-})
-
-VisualSection2:Toggle({
-    Title = "Crosshair",
+    Title = "Crosshair ꩜",
     Default = false,
     Callback = function(v)
+        Settings.CrosshairEnabled = v
         if v then
             createCrosshair()
         else
             if crosshairGui then crosshairGui:Destroy() crosshairGui = nil end
+            safeDisconnect(shiftLockConn)
+            shiftLockConn = nil
+            -- Включаем обратно ShiftLock
+            local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
+            if shiftLock then
+                shiftLock.Enabled = true
+            end
         end
-    end
-})
-
--- PARTICLES TAB
-local ParticlesTab = Window:Tab({ Title = "Particles", Icon = "cloud" })
-local ParticlesSection = ParticlesTab:Section({ Title = "Particles", Side = "Left" })
-
-ParticlesSection:Toggle({
-    Title = "Particles",
-    Default = false,
-    Callback = function(v)
-        Settings.ParticlesEnabled = v
-        startMainUpdate()
-        if not v then
-            clearAllParticles()
-        end
-    end
-})
-
--- SHADERS TAB
-local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
-local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
-
-ShadersSection:Toggle({
-    Title = "Bloom",
-    Default = false,
-    Callback = function(v)
-        Settings.BloomEnabled = v
-        setupBloom(v)
-    end
-})
-
-ShadersSection:Toggle({
-    Title = "Color Correction",
-    Default = false,
-    Callback = function(v)
-        Settings.ColorCorrectionEnabled = v
-        setupColorCorrection(v)
-    end
-})
-
-ShadersSection:Toggle({
-    Title = "Vignette",
-    Default = false,
-    Callback = function(v)
-        Settings.VignetteEnabled = v
-        setupVignette(v)
-    end
-})
-
--- SKY TAB
-local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
-local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
-
-SkySection:Input({
-    Title = "Sky ID",
-    Default = "",
-    Placeholder = "rbxassetid://...",
-    Callback = function(v) Settings.CustomSkyId = v end
-})
-
-SkySection:Button({
-    Title = "Apply Sky",
-    Callback = function()
-        if Settings.CustomSkyId ~= "" then
-            setupSky(Settings.CustomSkyId)
-            StarterGui:SetCore("SendNotification", {
-                Title = "Sky",
-                Text = "Sky applied!",
-                Duration = 2
-            })
-        end
-    end
-})
-
--- ANTI-AFK TAB
-local AntiAFKTab = Window:Tab({ Title = "Anti-AFK", Icon = "timer" })
-local AntiAFKSection = AntiAFKTab:Section({ Title = "AFK Protection", Side = "Left" })
-
-AntiAFKSection:Toggle({
-    Title = "Anti-AFK",
-    Default = false,
-    Callback = function(v)
-        Settings.AntiAFKEnabled = v
-        setupAntiAFK()
     end
 })
 
@@ -2026,6 +1505,14 @@ AutoFarmSection:Toggle({
     Callback = function(v)
         Settings.AutoFarmEnabled = v
         setupAutoFarm()
+    end
+})
+
+AutoFarmSection:Toggle({
+    Title = "Auto Respawn (Full Bag)",
+    Default = false,
+    Callback = function(v)
+        Settings.AutoRespawn = v
     end
 })
 
@@ -2056,6 +1543,19 @@ AutoFarmSection2:Input({
     Callback = function(v)
         local num = tonumber(v)
         if num then Settings.AutoFarmCoinDelay = num end
+    end
+})
+
+-- ANTI-AFK TAB
+local AntiAFKTab = Window:Tab({ Title = "Anti-AFK", Icon = "timer" })
+local AntiAFKSection = AntiAFKTab:Section({ Title = "AFK Protection", Side = "Left" })
+
+AntiAFKSection:Toggle({
+    Title = "Anti-AFK",
+    Default = false,
+    Callback = function(v)
+        Settings.AntiAFKEnabled = v
+        setupAntiAFK()
     end
 })
 
@@ -2107,7 +1607,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlanetHub v2.3 FIXED",
+    Title = "PlanetHub v3.0",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -2126,6 +1626,139 @@ SettingsSection:Button({
 })
 
 -- ========================================
+-- ===== SKELETON ESP (восстановлен) =====
+-- ========================================
+
+local SKELETON_BONES = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
+    {"UpperTorso", "LowerTorso"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"},
+}
+
+local function cacheBoneParts(player)
+    if not player or not player.Character then return end
+    local parts = {}
+    for _, bone in ipairs(SKELETON_BONES) do
+        parts[bone[1]] = player.Character:FindFirstChild(bone[1])
+        parts[bone[2]] = player.Character:FindFirstChild(bone[2])
+    end
+    Cache.BoneParts[player.UserId] = parts
+end
+
+local function createSkeletonForPlayer(player)
+    if not player or player == LocalPlayer or not player.Character then return end
+    if Cache.Bones[player.UserId] then return end
+
+    cacheBoneParts(player)
+
+    local bones = {}
+    for _, bonePair in ipairs(SKELETON_BONES) do
+        local line = Drawing.new("Line")
+        line.Thickness = 2
+        line.Transparency = 0.8
+        line.Visible = false
+        table.insert(bones, {pair = bonePair, line = line})
+    end
+
+    Cache.Bones[player.UserId] = bones
+end
+
+local function updateSkeletonBone(player, bone1Name, bone2Name, line)
+    if not player or not player.Character then
+        line.Visible = false
+        return false
+    end
+
+    local parts = Cache.BoneParts[player.UserId]
+    if not parts then
+        cacheBoneParts(player)
+        parts = Cache.BoneParts[player.UserId]
+        if not parts then
+            line.Visible = false
+            return false
+        end
+    end
+
+    local bone1 = parts[bone1Name]
+    local bone2 = parts[bone2Name]
+
+    if not bone1 or not bone1.Parent then
+        bone1 = player.Character:FindFirstChild(bone1Name)
+        if bone1 then parts[bone1Name] = bone1 end
+    end
+    if not bone2 or not bone2.Parent then
+        bone2 = player.Character:FindFirstChild(bone2Name)
+        if bone2 then parts[bone2Name] = bone2 end
+    end
+
+    if not bone1 or not bone2 then
+        line.Visible = false
+        return false
+    end
+
+    local s1, p1 = Camera:WorldToScreenPoint(bone1.Position)
+    local s2, p2 = Camera:WorldToScreenPoint(bone2.Position)
+
+    if s1.Z > 0 and s2.Z > 0 then
+        line.From = Vector2.new(p1.X, p1.Y)
+        line.To = Vector2.new(p2.X, p2.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
+        return true
+    else
+        line.Visible = false
+        return false
+    end
+end
+
+local function updateAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        local player = Players:GetPlayerByUserId(userId)
+        if not player or not Settings.SkeletonESP then
+            for _, bone in ipairs(bones) do
+                pcall(function() bone.line:Remove() end)
+            end
+            Cache.Bones[userId] = nil
+            Cache.BoneParts[userId] = nil
+        else
+            for _, bone in ipairs(bones) do
+                updateSkeletonBone(player, bone.pair[1], bone.pair[2], bone.line)
+            end
+        end
+    end
+end
+
+local function clearAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        for _, bone in ipairs(bones) do
+            pcall(function() bone.line:Remove() end)
+        end
+    end
+    Cache.Bones = {}
+    Cache.BoneParts = {}
+end
+
+-- Восстанавливаем скелетон в апдейт
+local oldUpdateVisuals = updateVisuals
+updateVisuals = function()
+    oldUpdateVisuals()
+    if Settings.SkeletonESP then
+        updateAllSkeletons()
+    end
+end
+
+-- ========================================
 -- ===== ИНИЦИАЛИЗАЦИЯ =====
 -- ========================================
 
@@ -2137,6 +1770,7 @@ Players.PlayerAdded:Connect(function(player)
         end
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
+            createDistanceText(player)
         end
         if Settings.JumpCircles then
             Cache.JumpTracking[player.UserId] = {wasJumping = false}
@@ -2154,6 +1788,10 @@ Players.PlayerRemoving:Connect(function(player)
         Cache.Bones[player.UserId] = nil
     end
     Cache.Highlights[player.UserId] = nil
+    if Cache.ChamsESP[player.UserId] then
+        pcall(function() Cache.ChamsESP[player.UserId].billboard:Destroy() end)
+        Cache.ChamsESP[player.UserId] = nil
+    end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
@@ -2164,10 +1802,12 @@ LocalPlayer.CharacterAdded:Connect(function()
 
     Cache.BoneParts = {}
     Cache.ChamsPartsList = {}
+    Cache.ChamsESP = {}
 
     for _, player in ipairs(Players:GetPlayers()) do
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
+            createDistanceText(player)
         end
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
@@ -2175,13 +1815,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 
     setupRGBHumanoid()
-    setupNimb()
     updatePlayerInfo()
-
-    if Settings.WingsEnabled then
-        task.wait(0.5)
-        setupWings()
-    end
 
     if Settings.JumpCircles then
         setupJumpTracking()
@@ -2195,15 +1829,19 @@ LocalPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         startFly()
     end
+
+    if Settings.CrosshairEnabled then
+        createCrosshair()
+    end
 end)
 
 startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlanetHub v2.3 FIXED Loaded!")
+print("✅ PlanetHub v3.0 HARDCORE Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v2.3 FIXED | Wings work!",
+    Text = "PlanetHub v3.0 | Chams through walls + Distance!",
     Duration = 5
 })
