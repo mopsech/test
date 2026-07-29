@@ -1,16 +1,19 @@
-```lua
 -- ========================================
--- ===== PLANT HUB v2.3 =====
+-- ===== PLANT HUB v2.3 FIXED FULL =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+if not WindUI then
+    game.StarterGui:SetCore("SendNotification", {Title = "Error", Text = "WindUI not loaded!", Duration = 5})
+    return
+end
 
 WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
 
 local Window = WindUI:CreateWindow({
     Title = "PlanetHub",
-    Author = "MMV and MM2",
+    Author = "MMV & MM2",
     Icon = "crown",
     Folder = "PlantHubSettings",
     Size = UDim2.fromOffset(720, 600),
@@ -87,11 +90,11 @@ local Settings = {
 local Cache = {
     Highlights = {},
     Bones = {},
-    BoneParts = {},        -- кэш частей персонажа для skeleton
+    BoneParts = {},
     Visuals = {},
     Connections = {},
     ChamsParts = {},
-    ChamsPartsList = {},   -- оптимизированный список частей для чамсов
+    ChamsPartsList = {},
     Particles = {},
     PostEffects = {},
     JumpTracking = {},
@@ -102,6 +105,7 @@ local Cache = {
     CurrentTween = nil,
     XRayParts = {},
     WingsPart = nil,
+    WingsLeftPart = nil,
     WingsConnection = nil,
     WingsParticles = {},
 }
@@ -210,10 +214,9 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS (ОПТИМИЗИРОВАННЫЕ) =====
+-- ===== CHAMS =====
 -- ========================================
 
--- Кэшируем список частей один раз при появлении персонажа
 local function cacheCharacterParts(player)
     if not player or not player.Character then return end
     local list = {}
@@ -338,10 +341,9 @@ local function setupNimb()
         nimb.BottomSurface = Enum.SurfaceType.Smooth
         nimb.Parent = LocalPlayer.Character
 
-        -- Используем специальный меш для формы кольца
         local mesh = Instance.new("SpecialMesh")
         mesh.MeshType = Enum.MeshType.FileMesh
-        mesh.MeshId = "rbxassetid://3270017" -- стандартное кольцо Roblox
+        mesh.MeshId = "rbxassetid://3270017"
         mesh.Scale = Vector3.new(1.2, 0.15, 1.2)
         mesh.Parent = nimb
 
@@ -397,7 +399,7 @@ local function setupXRay()
 end
 
 -- ========================================
--- ===== WINGS =====
+-- ===== WINGS (FIXED) =====
 -- ========================================
 
 local function clearWings()
@@ -413,226 +415,107 @@ local function clearWings()
         pcall(function() Cache.WingsPart:Destroy() end)
         Cache.WingsPart = nil
     end
+    if Cache.WingsLeftPart then
+        pcall(function() Cache.WingsLeftPart:Destroy() end)
+        Cache.WingsLeftPart = nil
+    end
 end
 
-local function setupWings()
-    clearWings()
-
-    if not Settings.WingsEnabled then return end
-    if not LocalPlayer.Character then return end
-
+local function createManualWings()
     local character = LocalPlayer.Character
-    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not character then return end
+
     local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-    if not hrp or not torso then return end
+    if not torso then return end
 
-    -- ===== ЗАГРУЖАЕМ МОДЕЛЬ КРЫЛЬЕВ =====
-    local wingsModel = nil
-    local success, err = pcall(function()
-        wingsModel = InsertService:LoadAsset(114504871813760)
-    end)
+    local function createWingPart(side, offsetX, angle)
+        local wing = Instance.new("Part")
+        wing.Name = "Wing_" .. side
+        wing.Size = Vector3.new(0.3, 2.5, 4)
+        wing.Material = Enum.Material.Neon
+        wing.Color = COLORS.Purple
+        wing.Transparency = 0.15
+        wing.CanCollide = false
+        wing.Anchored = false
+        wing.TopSurface = Enum.SurfaceType.Smooth
+        wing.BottomSurface = Enum.SurfaceType.Smooth
+        wing.Parent = character
 
-    if success and wingsModel then
-        -- Ищем первый MeshPart или Part внутри модели
-        local wingsPart = nil
-        for _, child in ipairs(wingsModel:GetDescendants()) do
-            if child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("SpecialMesh") then
-                wingsPart = child
-                break
-            end
-        end
+        local mesh = Instance.new("SpecialMesh")
+        mesh.MeshType = Enum.MeshType.FileMesh
+        mesh.MeshId = "rbxassetid://1285237"
+        mesh.Scale = Vector3.new(1.5, 1.5, 1.5)
+        mesh.Parent = wing
 
-        if not wingsPart then
-            -- Если не нашли потомка, берём сам первый child
-            wingsPart = wingsModel:FindFirstChildOfClass("BasePart")
-                     or wingsModel:FindFirstChildOfClass("MeshPart")
-                     or wingsModel:FindFirstChildOfClass("Model")
-        end
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = wing
+        weld.Part1 = torso
+        weld.Parent = wing
 
-        if wingsPart and wingsPart:IsA("BasePart") then
-            wingsPart.CanCollide = false
-            wingsPart.Anchored = false
-            wingsPart.Material = Enum.Material.Neon
-            wingsPart.Color = COLORS.Purple
-            wingsPart.Transparency = 0.1
-            wingsPart.Parent = character
+        wing.CFrame = torso.CFrame * CFrame.new(offsetX, 0.5, 0.8) * CFrame.Angles(0, angle, 0)
 
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = wingsPart
-            weld.Part1 = torso
-            weld.Parent = wingsPart
+        -- Эмиттер частиц
+        local emitter = Instance.new("ParticleEmitter")
+        emitter.Texture = "rbxassetid://241685484"
+        emitter.LightEmission = 1
+        emitter.LightInfluence = 0
+        emitter.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, COLORS.Purple),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
+        })
+        emitter.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.25),
+            NumberSequenceKeypoint.new(0.5, 0.12),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+        emitter.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        emitter.Speed = NumberRange.new(1, 4)
+        emitter.Lifetime = NumberRange.new(0.4, 1.0)
+        emitter.Rate = 25
+        emitter.SpreadAngle = Vector2.new(40, 40)
+        emitter.RotSpeed = NumberRange.new(-30, 30)
+        emitter.Rotation = NumberRange.new(0, 360)
+        emitter.Parent = wing
+        table.insert(Cache.WingsParticles, emitter)
 
-            -- Позиция — сзади торса
-            wingsPart.CFrame = torso.CFrame * CFrame.new(0, 0, 1.5)
+        -- Искровой эмиттер
+        local sparkEmitter = Instance.new("ParticleEmitter")
+        sparkEmitter.Texture = "rbxassetid://1266576587"
+        sparkEmitter.LightEmission = 1
+        sparkEmitter.LightInfluence = 0
+        sparkEmitter.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1, COLORS.Purple),
+        })
+        sparkEmitter.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.08),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+        sparkEmitter.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        sparkEmitter.Speed = NumberRange.new(2, 6)
+        sparkEmitter.Lifetime = NumberRange.new(0.2, 0.6)
+        sparkEmitter.Rate = 15
+        sparkEmitter.SpreadAngle = Vector2.new(50, 50)
+        sparkEmitter.Parent = wing
+        table.insert(Cache.WingsParticles, sparkEmitter)
 
-            Cache.WingsPart = wingsPart
-
-            -- ===== ЧАСТИЦЫ НА КРЫЛЬЯХ =====
-            local function addParticleEmitter(parent)
-                local emitter = Instance.new("ParticleEmitter")
-                emitter.Texture = "rbxassetid://241685484" -- светящийся шар
-                emitter.LightEmission = 1
-                emitter.LightInfluence = 0
-                emitter.Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, COLORS.Purple),
-                    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
-                })
-                emitter.Size = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.3),
-                    NumberSequenceKeypoint.new(0.5, 0.15),
-                    NumberSequenceKeypoint.new(1, 0),
-                })
-                emitter.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0),
-                    NumberSequenceKeypoint.new(1, 1),
-                })
-                emitter.Speed = NumberRange.new(2, 5)
-                emitter.Lifetime = NumberRange.new(0.5, 1.2)
-                emitter.Rate = 30
-                emitter.SpreadAngle = Vector2.new(45, 45)
-                emitter.RotSpeed = NumberRange.new(-45, 45)
-                emitter.Rotation = NumberRange.new(0, 360)
-                emitter.Parent = parent
-                table.insert(Cache.WingsParticles, emitter)
-            end
-
-            addParticleEmitter(wingsPart)
-
-            -- Дополнительный эмиттер для искр
-            local function addSparkEmitter(parent)
-                local emitter = Instance.new("ParticleEmitter")
-                emitter.Texture = "rbxassetid://1266576587" -- искра
-                emitter.LightEmission = 1
-                emitter.LightInfluence = 0
-                emitter.Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-                    ColorSequenceKeypoint.new(1, COLORS.Purple),
-                })
-                emitter.Size = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.1),
-                    NumberSequenceKeypoint.new(1, 0),
-                })
-                emitter.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0),
-                    NumberSequenceKeypoint.new(1, 1),
-                })
-                emitter.Speed = NumberRange.new(3, 8)
-                emitter.Lifetime = NumberRange.new(0.3, 0.8)
-                emitter.Rate = 20
-                emitter.SpreadAngle = Vector2.new(60, 60)
-                emitter.Parent = parent
-                table.insert(Cache.WingsParticles, emitter)
-            end
-
-            addSparkEmitter(wingsPart)
-        else
-            -- Если модель не содержит BasePart, пробуем другой подход
-            wingsModel:Destroy()
-            wingsModel = nil
-        end
-
-        if wingsModel then
-            wingsModel:Destroy()
-        end
+        return wing
     end
 
-    -- Если LoadAsset не сработал или модель не подошла — создаём крылья вручную
-    if not Cache.WingsPart then
-        -- Создаём крылья из двух частей (левое и правое)
-        local function createWingPart(side)
-            local wing = Instance.new("Part")
-            wing.Name = "Wing_" .. side
-            wing.Size = Vector3.new(0.3, 2.5, 4)
-            wing.Material = Enum.Material.Neon
-            wing.Color = COLORS.Purple
-            wing.Transparency = 0.15
-            wing.CanCollide = false
-            wing.Anchored = false
-            wing.TopSurface = Enum.SurfaceType.Smooth
-            wing.BottomSurface = Enum.SurfaceType.Smooth
-            wing.Parent = character
+    local leftWing = createWingPart("Left", -2.5, math.rad(30))
+    local rightWing = createWingPart("Right", 2.5, math.rad(-30))
 
-            -- Специальный меш для формы крыла
-            local mesh = Instance.new("SpecialMesh")
-            mesh.MeshType = Enum.MeshType.FileMesh
-            mesh.MeshId = "rbxassetid://1285237" -- wing mesh
-            mesh.Scale = Vector3.new(1.5, 1.5, 1.5)
-            mesh.Parent = wing
+    Cache.WingsPart = rightWing
+    Cache.WingsLeftPart = leftWing
 
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = wing
-            weld.Part1 = torso
-            weld.Parent = wing
-
-            local offsetX = (side == "Left") and -2.5 or 2.5
-            local flipAngle = (side == "Left") and math.rad(30) or math.rad(-30)
-            wing.CFrame = torso.CFrame * CFrame.new(offsetX, 0.5, 0.8) * CFrame.Angles(0, flipAngle, 0)
-
-            -- Эмиттеры частиц
-            local emitter = Instance.new("ParticleEmitter")
-            emitter.Texture = "rbxassetid://241685484"
-            emitter.LightEmission = 1
-            emitter.LightInfluence = 0
-            emitter.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, COLORS.Purple),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
-            })
-            emitter.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.25),
-                NumberSequenceKeypoint.new(0.5, 0.12),
-                NumberSequenceKeypoint.new(1, 0),
-            })
-            emitter.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0),
-                NumberSequenceKeypoint.new(1, 1),
-            })
-            emitter.Speed = NumberRange.new(1, 4)
-            emitter.Lifetime = NumberRange.new(0.4, 1.0)
-            emitter.Rate = 25
-            emitter.SpreadAngle = Vector2.new(40, 40)
-            emitter.RotSpeed = NumberRange.new(-30, 30)
-            emitter.Rotation = NumberRange.new(0, 360)
-            emitter.Parent = wing
-            table.insert(Cache.WingsParticles, emitter)
-
-            local sparkEmitter = Instance.new("ParticleEmitter")
-            sparkEmitter.Texture = "rbxassetid://1266576587"
-            sparkEmitter.LightEmission = 1
-            sparkEmitter.LightInfluence = 0
-            sparkEmitter.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-                ColorSequenceKeypoint.new(1, COLORS.Purple),
-            })
-            sparkEmitter.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.08),
-                NumberSequenceKeypoint.new(1, 0),
-            })
-            sparkEmitter.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0),
-                NumberSequenceKeypoint.new(1, 1),
-            })
-            sparkEmitter.Speed = NumberRange.new(2, 6)
-            sparkEmitter.Lifetime = NumberRange.new(0.2, 0.6)
-            sparkEmitter.Rate = 15
-            sparkEmitter.SpreadAngle = Vector2.new(50, 50)
-            sparkEmitter.Parent = wing
-            table.insert(Cache.WingsParticles, sparkEmitter)
-
-            return wing
-        end
-
-        local leftWing = createWingPart("Left")
-        local rightWing = createWingPart("Right")
-
-        -- Сохраняем правое крыло как основное (для совместимости с кэшем)
-        -- Левое тоже добавляем в отдельный кэш
-        Cache.WingsPart = rightWing
-        Cache.WingsLeftPart = leftWing
-    end
-
-    -- ===== АНИМАЦИЯ КРЫЛЬЕВ (RGB пульсация) =====
+    -- Анимация
     safeDisconnect(Cache.WingsConnection)
     Cache.WingsConnection = RunService.Heartbeat:Connect(function()
         if not Settings.WingsEnabled then
@@ -647,26 +530,67 @@ local function setupWings()
         if Cache.WingsPart and Cache.WingsPart.Parent then
             Cache.WingsPart.Color = color
         end
-
         if Cache.WingsLeftPart and Cache.WingsLeftPart.Parent then
             Cache.WingsLeftPart.Color = color
         end
 
-        -- Обновляем цвет частиц
         for _, emitter in ipairs(Cache.WingsParticles) do
             if emitter and emitter.Parent then
-                emitter.Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, color),
-                    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
-                })
+                pcall(function()
+                    emitter.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, color),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
+                    })
+                end)
             end
         end
     end)
 end
 
+local function setupWings()
+    clearWings()
+
+    if not Settings.WingsEnabled then return end
+    if not LocalPlayer.Character then
+        task.wait(0.5)
+        if not LocalPlayer.Character then return end
+    end
+
+    -- ПЫТАЕМСЯ ЗАГРУЗИТЬ МОДЕЛЬ (ТИХО ПАДАЕМ)
+    local success, model = pcall(function()
+        return InsertService:LoadAsset(114504871813760)
+    end)
+
+    if success and model then
+        local wingPart = model:FindFirstChildOfClass("BasePart") or model:FindFirstChildOfClass("MeshPart")
+        if wingPart then
+            wingPart.Parent = LocalPlayer.Character
+            wingPart.CanCollide = false
+            wingPart.Anchored = false
+
+            local torso = LocalPlayer.Character:FindFirstChild("UpperTorso") or LocalPlayer.Character:FindFirstChild("Torso")
+            if torso then
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = wingPart
+                weld.Part1 = torso
+                weld.Parent = wingPart
+                wingPart.CFrame = torso.CFrame * CFrame.new(0, 0.5, 1.5)
+            end
+
+            Cache.WingsPart = wingPart
+            pcall(function() model:Destroy() end)
+            return
+        end
+        pcall(function() model:Destroy() end)
+    end
+
+    -- ЗАПАСНОЙ ВАРИАНТ
+    createManualWings()
+end
+
 -- ========================================
--- ===== SKELETON ESP (ИСПРАВЛЕННЫЙ) =====
+-- ===== SKELETON ESP =====
 -- ========================================
 
 local SKELETON_BONES = {
@@ -686,7 +610,6 @@ local SKELETON_BONES = {
     {"RightLowerLeg", "RightFoot"},
 }
 
--- Кэш частей персонажа для скелета
 local function cacheBoneParts(player)
     if not player or not player.Character then return end
     local parts = {}
@@ -698,7 +621,6 @@ local function cacheBoneParts(player)
 end
 
 local function createSkeletonForPlayer(player)
-    -- ИСПРАВЛЕНО: правильная проверка
     if not player or player == LocalPlayer or not player.Character then return end
     if Cache.Bones[player.UserId] then return end
 
@@ -722,7 +644,6 @@ local function updateSkeletonBone(player, bone1Name, bone2Name, line)
         return false
     end
 
-    -- Используем кэш частей
     local parts = Cache.BoneParts[player.UserId]
     if not parts then
         cacheBoneParts(player)
@@ -736,7 +657,6 @@ local function updateSkeletonBone(player, bone1Name, bone2Name, line)
     local bone1 = parts[bone1Name]
     local bone2 = parts[bone2Name]
 
-    -- Если части не найдены в кэше — ищем заново
     if not bone1 or not bone1.Parent then
         bone1 = player.Character:FindFirstChild(bone1Name)
         if bone1 then parts[bone1Name] = bone1 end
@@ -768,7 +688,6 @@ end
 
 local function updateAllSkeletons()
     for userId, bones in pairs(Cache.Bones) do
-        -- ИСПРАВЛЕНО: GetPlayerByUserId вместо FindFirstChild
         local player = Players:GetPlayerByUserId(userId)
         if not player or not Settings.SkeletonESP then
             for _, bone in ipairs(bones) do
@@ -878,7 +797,6 @@ local function createLocalPlayerTrail()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- Удаляем старый трейл вместе с аттачментами
     local oldTrail = hrp:FindFirstChild("LocalTrail")
     if oldTrail then oldTrail:Destroy() end
     local oldAtt1 = hrp:FindFirstChild("TrailAtt1")
@@ -1145,7 +1063,7 @@ local function setupWallThought()
 end
 
 -- ========================================
--- ===== ANTI-AFK (ИСПРАВЛЕННЫЙ) =====
+-- ===== ANTI-AFK (FIXED) =====
 -- ========================================
 
 local afkConnection = nil
@@ -1154,7 +1072,6 @@ local lastAfkJump = 0
 local function setupAntiAFK()
     if Settings.AntiAFKEnabled then
         safeDisconnect(afkConnection)
-        -- ИСПРАВЛЕНО: прыжок каждые 60 секунд, а не каждый кадр
         afkConnection = RunService.Heartbeat:Connect(function()
             if not Settings.AntiAFKEnabled or not LocalPlayer.Character then return end
             local now = tick()
@@ -1367,7 +1284,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== FLY (ИСПРАВЛЕННЫЙ) =====
+-- ===== FLY (FIXED) =====
 -- ========================================
 
 local flyConnection = nil
@@ -1404,7 +1321,6 @@ end
 local function startFly()
     if not LocalPlayer.Character then return end
 
-    -- Сначала останавливаем предыдущий полёт
     if isFlying then stopFly() end
 
     local character = LocalPlayer.Character
@@ -1418,7 +1334,6 @@ local function startFly()
     workspace.Gravity = 0
     humanoid.PlatformStand = true
 
-    -- Удаляем старые если есть
     local oldBV = hrp:FindFirstChildOfClass("BodyVelocity")
     if oldBV then oldBV:Destroy() end
     local oldBG = hrp:FindFirstChildOfClass("BodyGyro")
@@ -1441,7 +1356,6 @@ local function startFly()
 
     safeDisconnect(flyConnection)
     flyConnection = RunService.RenderStepped:Connect(function(dt)
-        -- Проверяем что персонаж ещё существует
         if not isFlying then
             stopFly()
             return
@@ -1565,7 +1479,6 @@ local function setupSpinBot()
             if not SpinBot.Enabled or not LocalPlayer.Character then return end
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                -- ИСПРАВЛЕНО: используем deltaTime для корректной скорости
                 hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed * dt), 0)
             end
         end)
@@ -1713,9 +1626,10 @@ local function setupSheriffDeadNotif()
 end
 
 -- ========================================
--- ===== RAGE TAB =====
+-- ===== UI TABS =====
 -- ========================================
 
+-- RAGE TAB
 local RageTab = Window:Tab({ Title = "Rage", Icon = "sword" })
 local RageSection = RageTab:Section({ Title = "Rage", Side = "Left" })
 local RageSection2 = RageTab:Section({ Title = "Flight", Side = "Right" })
@@ -1786,10 +1700,7 @@ RageSection:Input({
     end
 })
 
--- ========================================
--- ===== COMBAT TAB =====
--- ========================================
-
+-- COMBAT TAB
 local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
 local CombatSection = CombatTab:Section({ Title = "Combat", Side = "Left" })
 local CombatSection2 = CombatTab:Section({ Title = "Advanced", Side = "Right" })
@@ -1894,10 +1805,7 @@ CombatSection2:Input({
     end
 })
 
--- ========================================
--- ===== VISUAL TAB =====
--- ========================================
-
+-- VISUAL TAB
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
 local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
@@ -1926,7 +1834,6 @@ VisualSection:Toggle({
     Callback = function(v)
         Settings.ChamsEnabled = v
         if v then
-            -- Кэшируем части всех игроков при включении
             for _, player in ipairs(Players:GetPlayers()) do
                 cacheCharacterParts(player)
             end
@@ -1945,7 +1852,6 @@ VisualSection:Toggle({
         if not v then
             clearAllSkeletons()
         else
-            -- Создаём скелеты для всех игроков при включении
             for _, player in ipairs(Players:GetPlayers()) do
                 createSkeletonForPlayer(player)
             end
@@ -2004,10 +1910,10 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Wings ✨",
+    Title = "Wings ✨ (FIXED)",
     Default = false,
-    Callback = function(v)
-        Settings.WingsEnabled = v
+    Callback = function(value)
+        Settings.WingsEnabled = value
         setupWings()
     end
 })
@@ -2024,10 +1930,7 @@ VisualSection2:Toggle({
     end
 })
 
--- ========================================
--- ===== PARTICLES TAB =====
--- ========================================
-
+-- PARTICLES TAB
 local ParticlesTab = Window:Tab({ Title = "Particles", Icon = "cloud" })
 local ParticlesSection = ParticlesTab:Section({ Title = "Particles", Side = "Left" })
 
@@ -2043,10 +1946,7 @@ ParticlesSection:Toggle({
     end
 })
 
--- ========================================
--- ===== SHADERS TAB =====
--- ========================================
-
+-- SHADERS TAB
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
 local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
 
@@ -2077,10 +1977,7 @@ ShadersSection:Toggle({
     end
 })
 
--- ========================================
--- ===== SKY TAB =====
--- ========================================
-
+-- SKY TAB
 local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
 local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
 
@@ -2105,10 +2002,7 @@ SkySection:Button({
     end
 })
 
--- ========================================
--- ===== ANTI-AFK TAB =====
--- ========================================
-
+-- ANTI-AFK TAB
 local AntiAFKTab = Window:Tab({ Title = "Anti-AFK", Icon = "timer" })
 local AntiAFKSection = AntiAFKTab:Section({ Title = "AFK Protection", Side = "Left" })
 
@@ -2121,10 +2015,7 @@ AntiAFKSection:Toggle({
     end
 })
 
--- ========================================
--- ===== AUTO FARM TAB =====
--- ========================================
-
+-- AUTO FARM TAB
 local AutoFarmTab = Window:Tab({ Title = "Auto Farm", Icon = "star" })
 local AutoFarmSection = AutoFarmTab:Section({ Title = "Farm Settings", Side = "Left" })
 local AutoFarmSection2 = AutoFarmTab:Section({ Title = "Config", Side = "Right" })
@@ -2168,10 +2059,7 @@ AutoFarmSection2:Input({
     end
 })
 
--- ========================================
--- ===== PROFILE TAB =====
--- ========================================
-
+-- PROFILE TAB
 local ProfileTab = Window:Tab({ Title = "Profile", Icon = "user" })
 local ProfileSection = ProfileTab:Section({ Title = "Player Info", Side = "Left" })
 
@@ -2214,15 +2102,12 @@ end)
 
 updatePlayerInfo()
 
--- ========================================
--- ===== SETTINGS TAB =====
--- ========================================
-
+-- SETTINGS TAB
 local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlantHub v2.3",
+    Title = "PlanetHub v2.3 FIXED",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -2277,11 +2162,9 @@ LocalPlayer.CharacterAdded:Connect(function()
     clearAllChams()
     clearAllSkeletons()
 
-    -- Сбрасываем кэши при смерти/респавне
     Cache.BoneParts = {}
     Cache.ChamsPartsList = {}
 
-    -- Перекэшируем всех игроков
     for _, player in ipairs(Players:GetPlayers()) do
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
@@ -2295,10 +2178,8 @@ LocalPlayer.CharacterAdded:Connect(function()
     setupNimb()
     updatePlayerInfo()
 
-    -- Перезапускаем Wings при респавне
     if Settings.WingsEnabled then
         task.wait(0.5)
-        clearWings()
         setupWings()
     end
 
@@ -2310,7 +2191,6 @@ LocalPlayer.CharacterAdded:Connect(function()
         createLocalPlayerTrail()
     end
 
-    -- Перезапускаем полёт если был включён
     if Settings.FlyEnabled then
         task.wait(0.5)
         startFly()
@@ -2321,10 +2201,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlantHub v2.3 Loaded!")
+print("✅ PlanetHub v2.3 FIXED Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlantHub v2.3 | By MMV and MM2",
+    Text = "PlanetHub v2.3 FIXED | Wings work!",
     Duration = 5
 })
-```
