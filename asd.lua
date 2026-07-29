@@ -28,9 +28,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui = game:GetService("StarterGui")
-local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
@@ -39,76 +38,61 @@ local Mouse = LocalPlayer:GetMouse()
 -- ===== ПЕРЕМЕННЫЕ =====
 -- ========================================
 
--- ESP
-local MurderESP = false
-local SheriffESP = false
-local InnocentESP = false
-local SkeletonESP = false
-local UpdateConnection = nil
-
--- Chams
-local ChamsEnabled = false
-local ChamsMurder = false
-local ChamsSheriff = false
-local ChamsInnocent = false
-
--- Box
-local BoxMurder = false
-local BoxSheriff = false
-local BoxInnocent = false
-local BoxConnections = {}
-
--- Visuals
-local JumpCircle = false
-local ChinaHat = false
-local Trail = false
-local FOVChanger = 70
-
--- Rage
-local FlyEnabled = false
-local FlySpeed = 80
-local FlyConnection = nil
-local FlyBodyGyro = nil
-local FlyBodyVelocity = nil
-
-local BHopEnabled = false
-local BHopConnection = nil
-local BHopHeight = 3
-
-local SilentAimEnabled = false
-local SilentAimFOV = 150
-local SilentAimTarget = nil
-
-local TriggerBotEnabled = false
-
--- Other
-local NoclipEnabled = false
-local NoclipConnection = nil
-local XRayEnabled = false
-local AntiFlingEnabled = false
-local AntiFlingConnection = nil
-
-local SpinBotEnabled = false
-local SpinConnection = nil
-
--- Fling
-local FlingEnabled = false
-local FlingConnection = nil
-local FlingPart = nil
-
--- Configs
-local Configs = {}
-local CurrentConfig = "Default"
-
--- References storage
-local Highlights = {}
-local SkeletonParts = {}
-local Visuals3D = {}
-local TrailAttachments = {}
+local Settings = {
+    -- ESP
+    MurderESP = false,
+    SheriffESP = false,
+    InnocentESP = false,
+    SkeletonESP = false,
+    
+    -- Chams
+    ChamsEnabled = false,
+    ChamsMurder = false,
+    ChamsSheriff = false,
+    ChamsInnocent = false,
+    
+    -- Box
+    BoxMurder = false,
+    BoxSheriff = false,
+    BoxInnocent = false,
+    
+    -- Visuals
+    JumpCircles = false,
+    ChinaHat = false,
+    Trails = false,
+    FogEnabled = false,
+    ParticlesEnabled = false,
+    
+    -- Rage
+    FlyEnabled = false,
+    FlySpeed = 80,
+    BHopEnabled = false,
+    SpinBotEnabled = false,
+    SpinSpeed = 5,
+    
+    -- Aim
+    SilentAimEnabled = false,
+    SilentAimFOV = 150,
+    
+    -- Combat
+    NoclipEnabled = false,
+    AntiFlingEnabled = false,
+    FOVChanger = 70
+}
 
 -- ========================================
--- ===== ЦВЕТА =====
+-- ===== КЭШИ И ССЫЛКИ =====
 -- ========================================
+
+local Cache = {
+    Highlights = {},
+    Boxes = {},
+    Bones = {},
+    BodyParts = {},
+    Visuals = {},
+    Connections = {},
+    ChamsParts = {}
+}
 
 local COLORS = {
     Murder = Color3.fromRGB(255, 0, 0),
@@ -116,19 +100,25 @@ local COLORS = {
     Innocent = Color3.fromRGB(0, 255, 0),
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
-    Gold = Color3.fromRGB(255, 215, 0)
+    Gold = Color3.fromRGB(255, 215, 0),
+    Pink = Color3.fromRGB(255, 0, 255)
 }
 
 -- ========================================
 -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 -- ========================================
 
+local function safeDisconnect(conn)
+    if conn and typeof(conn) == "RBXScriptConnection" then
+        pcall(function() conn:Disconnect() end)
+    end
+end
+
 local function checkKnife(player)
-    if player.Character then
-        for _, item in ipairs(player.Character:GetDescendants()) do
-            if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then 
-                return true 
-            end
+    if not player or not player.Character then return false end
+    for _, item in ipairs(player.Character:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then 
+            return true 
         end
     end
     local backpack = player:FindFirstChild("Backpack")
@@ -143,11 +133,10 @@ local function checkKnife(player)
 end
 
 local function checkGun(player)
-    if player.Character then
-        for _, item in ipairs(player.Character:GetDescendants()) do
-            if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("pistol") or item.Name:lower():find("revolver")) then 
-                return true 
-            end
+    if not player or not player.Character then return false end
+    for _, item in ipairs(player.Character:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("pistol") or item.Name:lower():find("revolver")) then 
+            return true 
         end
     end
     local backpack = player:FindFirstChild("Backpack")
@@ -174,764 +163,596 @@ local function getRoleColor(player)
     return COLORS.Innocent
 end
 
-local function getConfigPath()
-    return "MurderHubConfigs_" .. LocalPlayer.UserId
+-- ========================================
+-- ===== HIGHLIGHT ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ========================================
+
+local function createOrUpdateHighlight(player, color)
+    if not player or not player.Character then return end
+    
+    local char = player.Character
+    local highlight = char:FindFirstChild("MurderESP_Highlight")
+    
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "MurderESP_Highlight"
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = char
+    end
+    
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.FillTransparency = 0.4
+    highlight.OutlineTransparency = 0
+    highlight.Enabled = true
+    
+    Cache.Highlights[player.UserId] = highlight
+end
+
+local function removeHighlight(player)
+    if not player or not player.Character then return end
+    local highlight = player.Character:FindFirstChild("MurderESP_Highlight")
+    if highlight then pcall(function() highlight:Destroy() end) end
+    Cache.Highlights[player.UserId] = nil
+end
+
+local function clearAllHighlights()
+    for userId, highlight in pairs(Cache.Highlights) do
+        if highlight then pcall(function() highlight:Destroy() end) end
+    end
+    Cache.Highlights = {}
 end
 
 -- ========================================
--- ===== КОНФИГИ =====
+-- ===== CHAMS (ОПТИМИЗИРОВАННЫЕ) =====
 -- ========================================
 
-local function saveConfig(name)
-    local config = {
-        MurderESP = MurderESP,
-        SheriffESP = SheriffESP,
-        InnocentESP = InnocentESP,
-        SkeletonESP = SkeletonESP,
-        ChamsEnabled = ChamsEnabled,
-        ChamsMurder = ChamsMurder,
-        ChamsSheriff = ChamsSheriff,
-        ChamsInnocent = ChamsInnocent,
-        BoxMurder = BoxMurder,
-        BoxSheriff = BoxSheriff,
-        BoxInnocent = BoxInnocent,
-        JumpCircle = JumpCircle,
-        ChinaHat = ChinaHat,
-        Trail = Trail,
-        FlyEnabled = FlyEnabled,
-        FlySpeed = FlySpeed,
-        BHopEnabled = BHopEnabled,
-        SilentAimEnabled = SilentAimEnabled,
-        TriggerBotEnabled = TriggerBotEnabled,
-        NoclipEnabled = NoclipEnabled,
-        XRayEnabled = XRayEnabled,
-        AntiFlingEnabled = AntiFlingEnabled,
-        FOVChanger = FOVChanger
-    }
-    Configs[name] = config
+local function applyChams(player)
+    if not player or not player.Character then return end
     
-    local success = pcall(function()
-        writefile(getConfigPath() .. "/" .. name .. ".json", game:GetService("HttpService"):JSONEncode(config))
-    end)
+    local parts = Cache.ChamsParts[player.UserId] or {}
     
-    if success then
-        StarterGui:SetCore("SendNotification", {
-            Title = "Murder Hub",
-            Text = "Config '" .. name .. "' saved!",
-            Duration = 3
-        })
-    end
-    return success
-end
-
-local function loadConfig(name)
-    if not Configs[name] then
-        local success = pcall(function()
-            local data = readfile(getConfigPath() .. "/" .. name .. ".json")
-            Configs[name] = game:GetService("HttpService"):JSONDecode(data)
-        end)
-        if not success then return false end
-    end
-    
-    local config = Configs[name]
-    if not config then return false end
-    
-    -- Apply config values
-    MurderESP = config.MurderESP or false
-    SheriffESP = config.SheriffESP or false
-    InnocentESP = config.InnocentESP or false
-    SkeletonESP = config.SkeletonESP or false
-    ChamsEnabled = config.ChamsEnabled or false
-    ChamsMurder = config.ChamsMurder or false
-    ChamsSheriff = config.ChamsSheriff or false
-    ChamsInnocent = config.ChamsInnocent or false
-    BoxMurder = config.BoxMurder or false
-    BoxSheriff = config.BoxSheriff or false
-    BoxInnocent = config.BoxInnocent or false
-    JumpCircle = config.JumpCircle or false
-    ChinaHat = config.ChinaHat or false
-    Trail = config.Trail or false
-    FlySpeed = config.FlySpeed or 80
-    BHopEnabled = config.BHopEnabled or false
-    SilentAimEnabled = config.SilentAimEnabled or false
-    TriggerBotEnabled = config.TriggerBotEnabled or false
-    NoclipEnabled = config.NoclipEnabled or false
-    XRayEnabled = config.XRayEnabled or false
-    AntiFlingEnabled = config.AntiFlingEnabled or false
-    FOVChanger = config.FOVChanger or 70
-    
-    CurrentConfig = name
-    
-    StarterGui:SetCore("SendNotification", {
-        Title = "Murder Hub",
-        Text = "Config '" .. name .. "' loaded!",
-        Duration = 3
-    })
-    return true
-end
-
-local function deleteConfig(name)
-    if Configs[name] then
-        Configs[name] = nil
-        pcall(function()
-            delfile(getConfigPath() .. "/" .. name .. ".json")
-        end)
-        StarterGui:SetCore("SendNotification", {
-            Title = "Murder Hub",
-            Text = "Config '" .. name .. "' deleted!",
-            Duration = 3
-        })
-    end
-end
-
-local function getConfigList()
-    local list = {}
-    pcall(function()
-        if isfolder(getConfigPath()) then
-            for _, file in ipairs(listfiles(getConfigPath())) do
-                local name = file:match("([^/\\]+)%.json$")
-                if name then
-                    table.insert(list, name)
-                end
+    for _, part in ipairs(player.Character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            if not parts[part] then
+                parts[part] = {
+                    ogMaterial = part.Material,
+                    ogColor = part.Color,
+                    ogTransparency = part.Transparency
+                }
             end
-        end
-    end)
-    return list
-end
-
--- Create config folder
-pcall(function()
-    if not isfolder(getConfigPath()) then
-        makefolder(getConfigPath())
-    end
-end)
-
--- ========================================
--- ===== GRAB GUN (Телепорт к оружию) =====
--- ========================================
-
-local function grabGun()
-    local gunModel = nil
-    
-    -- Ищем Gun в workspace
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol") or obj.Name:lower():find("revolver")) then
-            gunModel = obj
-            break
-        elseif obj:IsA("Model") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol")) then
-            gunModel = obj
-            break
-        end
-    end
-    
-    -- Ищем позицию
-    local gunPos = nil
-    if gunModel then
-        if gunModel:IsA("Tool") then
-            local handle = gunModel:FindFirstChild("Handle")
-            if handle then gunPos = handle.Position end
-        elseif gunModel:IsA("Model") then
-            local primary = gunModel.PrimaryPart
-            if primary then gunPos = primary.Position
-            else
-                local part = gunModel:FindFirstChildWhichIsA("BasePart")
-                if part then gunPos = part.Position end
-            end
-        end
-    end
-    
-    if gunPos and LocalPlayer.Character then
-        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = CFrame.new(gunPos)
-            StarterGui:SetCore("SendNotification", {
-                Title = "Grab Gun",
-                Text = "Teleported to Gun!",
-                Duration = 2
-            })
-        end
-    else
-        StarterGui:SetCore("SendNotification", {
-            Title = "Grab Gun",
-            Text = "Gun not found!",
-            Duration = 2
-        })
-    end
-end
-
--- Grab Gun при смерти шерифа
-local function setupGrabGun()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            player.CharacterAdded:Connect(function(char)
-                local humanoid = char:WaitForChild("Humanoid")
-                humanoid.Died:Connect(function()
-                    if checkGun(player) then
-                        task.wait(0.1)
-                        grabGun()
-                    end
-                end)
-            end)
             
-            if player.Character then
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if humanoid then
-                    humanoid.Died:Connect(function()
-                        if checkGun(player) then
-                            task.wait(0.1)
-                            grabGun()
-                        end
-                    end)
-                end
+            local role = getRole(player)
+            local color = COLORS.Purple
+            
+            if role == "Murder" and Settings.ChamsMurder then
+                color = COLORS.Murder
+            elseif role == "Sheriff" and Settings.ChamsSheriff then
+                color = COLORS.Sheriff
+            elseif role == "Innocent" and Settings.ChamsInnocent then
+                color = COLORS.Innocent
+            end
+            
+            if Settings.ChamsEnabled then
+                part.Material = Enum.Material.ForceField
+                part.Color = color
+                part.Transparency = 0.2
             end
         end
     end
     
-    Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(char)
-            local humanoid = char:WaitForChild("Humanoid")
-            humanoid.Died:Connect(function()
-                if checkGun(player) then
-                    task.wait(0.1)
-                    grabGun()
-                end
+    Cache.ChamsParts[player.UserId] = parts
+end
+
+local function removeChams(player)
+    if not player or not player.Character then return end
+    
+    local parts = Cache.ChamsParts[player.UserId]
+    if not parts then return end
+    
+    for part, data in pairs(parts) do
+        if part and part.Parent then
+            pcall(function()
+                part.Material = data.ogMaterial
+                part.Color = data.ogColor
+                part.Transparency = data.ogTransparency
             end)
-        end)
-    end)
+        end
+    end
+    
+    Cache.ChamsParts[player.UserId] = nil
 end
 
--- ========================================
--- ===== 3D РИСОВАНИЕ =====
--- ========================================
-
-local DrawingLib = {} do
-    DrawingLib.__index = DrawingLib
-    
-    function DrawingLib.new(type, props)
-        local obj = Drawing.new(type)
-        if props then
-            for i, v in pairs(props) do
-                obj[i] = v
+local function clearAllChams()
+    for userId, parts in pairs(Cache.ChamsParts) do
+        for part, data in pairs(parts) do
+            if part and part.Parent then
+                pcall(function()
+                    part.Material = data.ogMaterial
+                    part.Color = data.ogColor
+                    part.Transparency = data.ogTransparency
+                end)
             end
         end
-        return obj
+    end
+    Cache.ChamsParts = {}
+end
+
+-- ========================================
+-- ===== BOX ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ========================================
+
+local function createBox(player, color)
+    if not player or not player.Character then return end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local box = Instance.new("SelectionBox")
+    box.Adornee = player.Character
+    box.Color3 = color
+    box.LineThickness = 0.05
+    box.SurfaceTransparency = 0.8
+    box.SurfaceColor3 = color
+    box.Parent = workspace
+    
+    Cache.Boxes[player.UserId] = box
+end
+
+local function removeBox(player)
+    local box = Cache.Boxes[player.UserId]
+    if box then pcall(function() box:Destroy() end) end
+    Cache.Boxes[player.UserId] = nil
+end
+
+local function clearAllBoxes()
+    for userId, box in pairs(Cache.Boxes) do
+        if box then pcall(function() box:Destroy() end) end
+    end
+    Cache.Boxes = {}
+end
+
+-- ========================================
+-- ===== SKELETON ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ========================================
+
+local SKELETON_BONES = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"},
+    {"UpperTorso", "LowerTorso"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"},
+}
+
+local function updateSkeletonBone(player, bone1Name, bone2Name, line)
+    if not player.Character then return false end
+    
+    local bone1 = player.Character:FindFirstChild(bone1Name)
+    local bone2 = player.Character:FindFirstChild(bone2Name)
+    
+    if not bone1 or not bone2 then return false end
+    
+    local pos1 = bone1.Position
+    local pos2 = bone2.Position
+    
+    local s1, p1 = Camera:WorldToScreenPoint(pos1)
+    local s2, p2 = Camera:WorldToScreenPoint(pos2)
+    
+    if s1.Z > 0 and s2.Z > 0 then
+        line.From = Vector2.new(p1.X, p1.Y)
+        line.To = Vector2.new(p2.X, p2.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
+        return true
+    else
+        line.Visible = false
+        return false
+    end
+end
+
+local function createSkeletonForPlayer(player)
+    if player == LocalPlayer or not player.Character then return end
+    
+    local bones = Cache.Bones[player.UserId]
+    if bones then return end
+    
+    bones = {}
+    for _, bonePair in ipairs(SKELETON_BONES) do
+        local line = Drawing.new("Line")
+        line.Thickness = 1.5
+        line.Transparency = 0.8
+        line.Visible = false
+        table.insert(bones, {pair = bonePair, line = line})
     end
     
-    function DrawingLib:Destroy()
-        if self and self.Remove then
-            self:Remove()
+    Cache.Bones[player.UserId] = bones
+end
+
+local function updateAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        local player = Players:FindFirstChild(tostring(userId))
+        if not player or not Settings.SkeletonESP then
+            for _, bone in ipairs(bones) do
+                bone.line:Remove()
+            end
+            Cache.Bones[userId] = nil
+        else
+            for _, bone in ipairs(bones) do
+                updateSkeletonBone(player, bone.pair[1], bone.pair[2], bone.line)
+            end
         end
     end
 end
 
--- ========================================
--- ===== VISUALS =====
--- ========================================
-
-local function clearVisualEffects()
-    -- Clear 3D visuals
-    for _, obj in pairs(Visuals3D) do
-        if obj then
-            pcall(function() obj:Destroy() end)
-            pcall(function() obj:Remove() end)
+local function clearAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        for _, bone in ipairs(bones) do
+            pcall(function() bone.line:Remove() end)
         end
     end
-    Visuals3D = {}
-    
-    -- Clear trails
-    for _, attachment in pairs(TrailAttachments) do
-        pcall(function() attachment:Destroy() end)
-    end
-    TrailAttachments = {}
+    Cache.Bones = {}
 end
+
+-- ========================================
+-- ===== JUMP CIRCLES =====
+-- ========================================
 
 local function createJumpCircle(player)
-    if not player.Character then return end
+    if not player or not player.Character then return end
     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Удаляем старые
-    local old = Visuals3D[player.UserId .. "_jumpcircle"]
-    if old then pcall(function() old:Destroy() end) end
+    local circle = Instance.new("Part")
+    circle.Shape = Enum.PartType.Cylinder
+    circle.Size = Vector3.new(0.1, 5, 5)
+    circle.Material = Enum.Material.Neon
+    circle.Color = COLORS.Purple
+    circle.Transparency = 0.3
+    circle.Anchored = true
+    circle.CanCollide = false
+    circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
+    circle.Parent = workspace
     
-    -- Создаём кольцо
-    local ring = Instance.new("Part")
-    ring.Name = "JumpCircle"
-    ring.Shape = Enum.PartType.Cylinder
-    ring.Radius = 3
-    ring.Size = Vector3.new(0.2, 0.2, 0.2)
-    ring.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
-    ring.Color = COLORS.Purple
-    ring.Material = Enum.Material.Neon
-    ring.Transparency = 0.3
-    ring.Anchored = true
-    ring.CanCollide = false
-    ring.Parent = workspace
-    Visuals3D[player.UserId .. "_jumpcircle"] = ring
+    local startTime = tick()
+    local lifeTime = 0.6
     
-    -- Анимация
-    task.spawn(function()
-        while ring and ring.Parent do
-            if hrp and hrp.Parent then
-                -- Проверяем, прыгает ли игрок
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if humanoid and humanoid.Jump then
-                    ring.Transparency = 0
-                    ring.Size = Vector3.new(0.2, 6, 6)
-                else
-                    ring.Transparency = 0.5
-                    ring.Size = Vector3.new(0.2, 3, 3)
-                end
-                ring.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
-            end
-            task.wait()
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        local elapsed = tick() - startTime
+        if elapsed >= lifeTime or not circle or not circle.Parent then
+            pcall(function() circle:Destroy() end)
+            safeDisconnect(conn)
+            return
         end
+        
+        local alpha = elapsed / lifeTime
+        circle.Size = Vector3.new(0.1, 5 + alpha * 8, 5 + alpha * 8)
+        circle.Transparency = 0.3 + alpha * 0.7
+        circle.Color = Color3.fromHSV(0.75, 1 - alpha * 0.3, 1)
+        circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
     end)
 end
+
+-- ========================================
+-- ===== CHINA HAT =====
+-- ========================================
 
 local function createChinaHat(player)
-    if not player.Character then return end
+    if not player or not player.Character then return end
     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Удаляем старые
-    local old = Visuals3D[player.UserId .. "_chinahat"]
-    if old then pcall(function() old:Destroy() end) end
+    local old = player.Character:FindFirstChild("ChinaHat_Mesh")
+    if old then old:Destroy() end
     
-    -- Создаём "шляпу" над головой
     local hat = Instance.new("Part")
-    hat.Name = "ChinaHat"
-    hat.Shape = Enum.PartType.Cylinder
-    hat.Radius = 2
-    hat.Size = Vector3.new(0.3, 0.1, 0.1)
-    hat.CFrame = hrp.CFrame * CFrame.new(0, 4, 0) * CFrame.Angles(0, 0, math.rad(90))
-    hat.Color = COLORS.Gold
+    hat.Name = "ChinaHat_Mesh"
+    hat.Size = Vector3.new(3, 1, 3)
     hat.Material = Enum.Material.Neon
+    hat.Color = COLORS.Gold
     hat.Transparency = 0.2
-    hat.Anchored = true
+    hat.Anchored = false
     hat.CanCollide = false
-    hat.Parent = workspace
-    Visuals3D[player.UserId .. "_chinahat"] = hat
+    hat.TopSurface = Enum.SurfaceType.Smooth
+    hat.BottomSurface = Enum.SurfaceType.Smooth
     
-    -- Анимация вращения
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Sphere
+    mesh.Scale = Vector3.new(1.5, 0.5, 1.5)
+    mesh.Parent = hat
+    
+    hat.Parent = player.Character
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = hat
+    weld.Part1 = hrp
+    weld.Parent = hat
+    hat.Position = hrp.Position + Vector3.new(0, 3.5, 0)
+    
+    Cache.Visuals[player.UserId .. "_hat"] = hat
+    
     task.spawn(function()
         local angle = 0
-        while hat and hat.Parent do
-            if hrp and hrp.Parent then
-                angle = angle + 0.05
-                hat.CFrame = hrp.CFrame * CFrame.new(0, 4, 0) * CFrame.Angles(angle, 0, math.rad(90))
-            end
+        while hat and hat.Parent and Settings.ChinaHat do
+            angle = angle + 0.02
+            hat.CFrame = hrp.CFrame * CFrame.new(0, 3.5, 0) * CFrame.Angles(0, angle, 0)
             task.wait()
         end
+        if hat then pcall(function() hat:Destroy() end) end
     end)
 end
 
+-- ========================================
+-- ===== TRAILS =====
+-- ========================================
+
 local function createTrail(player)
-    if not player.Character then return end
+    if not player or not player.Character then return end
     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Удаляем старые
-    for _, att in pairs(TrailAttachments[player.UserId] or {}) do
-        pcall(function() att:Destroy() end)
-    end
-    TrailAttachments[player.UserId] = {}
+    -- Очищаем старые
+    local oldTrail = hrp:FindFirstChild("MurderTrail")
+    if oldTrail then oldTrail:Destroy() end
     
-    local color = COLORS.Purple
-    local role = getRole(player)
-    if role == "Murder" then color = COLORS.Murder
-    elseif role == "Sheriff" then color = COLORS.Sheriff
-    else color = COLORS.Innocent end
+    local att1 = Instance.new("Attachment")
+    att1.Parent = hrp
+    att1.Position = Vector3.new(-1, 0, 0)
+    
+    local att2 = Instance.new("Attachment")
+    att2.Parent = hrp
+    att2.Position = Vector3.new(1, 0, 0)
     
     local trail = Instance.new("Trail")
-    local att1 = Instance.new("Attachment")
-    local att2 = Instance.new("Attachment")
-    
-    att1.Parent = hrp
-    att1.Position = Vector3.new(0, -2, 0)
-    
-    att2.Parent = hrp
-    att2.Position = Vector3.new(0, 2, 0)
-    
+    trail.Name = "MurderTrail"
     trail.Attachment0 = att1
     trail.Attachment1 = att2
-    trail.Color = ColorSequence.new(color)
+    trail.Lifetime = 0.8
+    trail.MinLength = 0
+    trail.FaceCamera = true
+    trail.LightEmission = 1
+    trail.LightInfluence = 0
     trail.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0),
         NumberSequenceKeypoint.new(1, 1)
     })
-    trail.Lifetime = 1
-    trail.MinLength = 0.1
-    trail.LightEmission = 1
+    
+    local color = getRoleColor(player)
+    trail.Color = ColorSequence.new(color)
     trail.Parent = hrp
     
-    table.insert(TrailAttachments[player.UserId] or {}, att1)
-    table.insert(TrailAttachments[player.UserId] or {}, att2)
-    table.insert(TrailAttachments[player.UserId] or {}, trail)
+    Cache.Visuals[player.UserId .. "_trail"] = {trail = trail, att1 = att1, att2 = att2}
 end
 
 -- ========================================
--- ===== SKELETON ESP =====
+-- ===== PURPLE FOG =====
 -- ========================================
 
-local SkeletonConnections = {}
-
-local BONE_NAMES = {
-    {"Head", "Neck"},
-    {"Neck", "RightShoulder"},
-    {"Neck", "LeftShoulder"},
-    {"RightShoulder", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"LeftShoulder", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"Neck", "UpperTorso"},
-    {"UpperTorso", "RightUpperLeg"},
-    {"UpperTorso", "LeftUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"}
-}
-
-local function getCharacter(player)
-    return player and player.Character
-end
-
-local function getBonePosition(character, boneName)
-    local bone = character:FindFirstChild(boneName)
-    if bone and bone:IsA("Motor6D") then
-        return bone.Part1 and bone.Part1.Position or nil
-    elseif bone and bone:IsA("BasePart") then
-        return bone.Position
-    end
-    return nil
-end
-
-local function createSkeletonForPlayer(player)
-    if player == LocalPlayer then return end
-    if not player.Character then return end
-    
-    -- Очищаем старый скелет
-    local old = SkeletonParts[player.UserId]
-    if old then
-        for _, line in pairs(old) do
-            if line then pcall(function() line:Remove() end) end
-        end
-    end
-    SkeletonParts[player.UserId] = {}
-    
-    local lines = {}
-    
-    for i, bonePair in ipairs(BONE_NAMES) do
-        local line = Drawing.new("Line")
-        line.Color = Color3.new(1, 1, 1)
-        line.Thickness = 1
-        line.Transparency = 0.5
-        line.Visible = false
-        lines[i] = line
-    end
-    
-    SkeletonParts[player.UserId] = lines
-    
-    -- Обновление
-    local connection
-    connection = RunService.RenderStepped:Connect(function()
-        if not player.Character or not player.Character.Parent then
-            connection:Disconnect()
-            for _, line in pairs(lines) do
-                if line then pcall(function() line:Remove() end) end
-            end
-            SkeletonParts[player.UserId] = nil
-            return
-        end
+local function setupFog()
+    if Settings.FogEnabled then
+        local originalFog = {
+            Brightness = Lighting.Brightness,
+            ClockTime = Lighting.ClockTime,
+            FogEnd = Lighting.FogEnd,
+            GlobalShadows = Lighting.GlobalShadows
+        }
         
-        if not SkeletonESP then
-            for _, line in pairs(lines) do
-                if line then line.Visible = false end
-            end
-            return
-        end
+        Lighting.Brightness = 1.5
+        Lighting.ClockTime = 16
+        Lighting.FogEnd = 500
+        Lighting.Ambient = COLORS.Purple
+        Lighting.OutdoorAmbient = COLORS.Purple
+        Lighting.GlobalShadows = false
         
-        local character = player.Character
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        
-        local camCF = Camera.CFrame
-        
-        for i, bonePair in ipairs(BONE_NAMES) do
-            local line = lines[i]
-            if not line then continue end
-            
-            local pos1 = getBonePosition(character, bonePair[1])
-            local pos2 = getBonePosition(character, bonePair[2])
-            
-            if pos1 and pos2 then
-                local vec1 = (camCF * CFrame.new(pos1)).Position
-                local vec2 = (camCF * CFrame.new(pos2)).Position
-                
-                local s1, p1 = Camera:WorldToScreenPoint(vec1)
-                local s2, p2 = Camera:WorldToScreenPoint(vec2)
-                
-                if s1.Z > 0 and s2.Z > 0 then
-                    line.From = Vector2.new(p1.X, p1.Y)
-                    line.To = Vector2.new(p2.X, p2.Y)
-                    line.Visible = true
-                    line.Color = getRoleColor(player)
-                else
-                    line.Visible = false
-                end
-            else
-                line.Visible = false
-            end
-        end
-    end)
-    
-    SkeletonConnections[player.UserId] = connection
-end
-
-local function clearAllSkeletons()
-    for userId, lines in pairs(SkeletonParts) do
-        for _, line in pairs(lines) do
-            if line then pcall(function() line:Remove() end) end
-        end
-    end
-    SkeletonParts = {}
-    
-    for _, conn in pairs(SkeletonConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    SkeletonConnections = {}
-end
-
-local function updateSkeletons()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            if player.Character and not SkeletonParts[player.UserId] then
-                createSkeletonForPlayer(player)
-            end
-        end
-    end
-end
-
--- ========================================
--- ===== HIGHLIGHT ESP =====
--- ========================================
-
-local function createHighlight(obj, color)
-    if not obj then return end
-    local h = obj:FindFirstChild("H")
-    if not h then
-        h = Instance.new("Highlight")
-        h.Name = "H"
-        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        h.Parent = obj
-    end
-    h.Adornee = obj
-    h.FillColor = color
-    h.OutlineColor = color
-    h.FillTransparency = 0.5
-    h.OutlineTransparency = 0.3
-    h.Enabled = true
-end
-
-local function removeHighlight(obj)
-    if obj and obj:FindFirstChild("H") then 
-        obj.H:Destroy() 
-    end
-end
-
-local function clearAllHighlights()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Character then 
-            removeHighlight(player.Character) 
-        end
-    end
-end
-
--- ========================================
--- ===== CHAMS (ВСЕ ФИОЛЕТОВЫЕ) =====
--- ========================================
-
-local function setPlayerChams(player, enabled, colorOverride)
-    if not player.Character then return end
-    
-    for _, part in ipairs(player.Character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if ChamsEnabled then
-                part.Material = Enum.Material.ForceField
-                part.Color = colorOverride or COLORS.Purple
-                part.Transparency = 0.3
-            else
-                part.Material = Enum.Material.Plastic
-                part.Transparency = 0
-            end
-        end
-    end
-end
-
-local function clearPlayerChams(player)
-    if not player.Character then return end
-    
-    for _, part in ipairs(player.Character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Material = Enum.Material.Plastic
-            part.Transparency = 0
-        end
-    end
-end
-
-local function updateChams()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hasKnife = checkKnife(player)
-            local hasGun = checkGun(player)
-            
-            if ChamsEnabled then
-                local color = COLORS.Purple
-                if hasKnife and ChamsMurder then
-                    color = COLORS.Murder
-                elseif hasGun and ChamsSheriff then
-                    color = COLORS.Sheriff
-                elseif not hasKnife and not hasGun and ChamsInnocent then
-                    color = COLORS.Innocent
-                end
-                setPlayerChams(player, true, color)
-            else
-                clearPlayerChams(player)
-            end
-        end
-    end
-end
-
--- ========================================
--- ===== BOX ESP =====
--- ========================================
-
-local function clearBoxes()
-    for _, item in ipairs(BoxConnections) do
-        pcall(function()
-            if item:IsA("BoxHandleAdornment") then item:Destroy()
-            elseif typeof(item) == "RBXScriptConnection" then item:Disconnect() end
-        end)
-    end
-    BoxConnections = {}
-end
-
-local function createBox(player, color)
-    if not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local box = Instance.new("BoxHandleAdornment")
-    box.Size = Vector3.new(3, 6, 3)
-    box.CFrame = hrp.CFrame
-    box.Color3 = color
-    box.Transparency = 0.5
-    box.ZIndex = 10
-    box.AlwaysOnTop = true
-    box.Parent = hrp
-    table.insert(BoxConnections, box)
-    
-    local conn = RunService.Heartbeat:Connect(function()
-        if box and box.Parent then 
-            box.CFrame = hrp.CFrame 
-        end
-    end)
-    table.insert(BoxConnections, conn)
-end
-
-local function updateBoxes()
-    clearBoxes()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not player.Character then continue end
-        
-        local hasKnife = checkKnife(player)
-        local hasGun = checkGun(player)
-        
-        if hasKnife and BoxMurder then 
-            createBox(player, COLORS.Murder)
-        elseif hasGun and BoxSheriff then 
-            createBox(player, COLORS.Sheriff)
-        elseif not hasKnife and not hasGun and BoxInnocent then 
-            createBox(player, COLORS.Innocent)
-        end
-    end
-end
-
--- ========================================
--- ===== UPDATE ESP =====
--- ========================================
-
-local function updateESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not player.Character then continue end
-        
-        local hasKnife = checkKnife(player)
-        local hasGun = checkGun(player)
-        local role = getRole(player)
-        
-        -- Highlight ESP
-        if MurderESP and role == "Murder" then
-            createHighlight(player.Character, COLORS.Murder)
-        elseif SheriffESP and role == "Sheriff" then
-            createHighlight(player.Character, COLORS.Sheriff)
-        elseif InnocentESP and role == "Innocent" then
-            createHighlight(player.Character, COLORS.Innocent)
-        else
-            removeHighlight(player.Character)
-        end
-        
-        -- Visual Effects
-        if JumpCircle then
-            createJumpCircle(player)
-        else
-            local old = Visuals3D[player.UserId .. "_jumpcircle"]
-            if old then pcall(function() old:Destroy() end) Visuals3D[player.UserId .. "_jumpcircle"] = nil end
-        end
-        
-        if ChinaHat then
-            createChinaHat(player)
-        else
-            local old = Visuals3D[player.UserId .. "_chinahat"]
-            if old then pcall(function() old:Destroy() end) Visuals3D[player.UserId .. "_chinahat"] = nil end
-        end
-        
-        if Trail then
-            createTrail(player)
-        end
-    end
-end
-
-local function setupESP()
-    if UpdateConnection then UpdateConnection:Disconnect() end
-    
-    local anyESP = MurderESP or SheriffESP or InnocentESP or SkeletonESP or ChamsEnabled or BoxMurder or BoxSheriff or BoxInnocent or JumpCircle or ChinaHat or Trail
-    
-    if anyESP then
-        UpdateConnection = RunService.Heartbeat:Connect(function()
-            updateESP()
-            updateBoxes()
-            updateChams()
-        end)
-        
-        Players.PlayerAdded:Connect(function(player)
-            player.CharacterAdded:Connect(function()
-                task.wait(0.5)
-                createSkeletonForPlayer(player)
-            end)
-        end)
-        
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player.Character then
-                createSkeletonForPlayer(player)
+        Cache.Connections["fog"] = function()
+            if not Settings.FogEnabled then
+                Lighting.Brightness = originalFog.Brightness
+                Lighting.ClockTime = originalFog.ClockTime
+                Lighting.FogEnd = originalFog.FogEnd
+                Lighting.GlobalShadows = originalFog.GlobalShadows
+                Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+                Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
             end
         end
     else
-        clearAllHighlights()
-        clearAllSkeletons()
-        clearBoxes()
-        clearVisualEffects()
+        local cleanup = Cache.Connections["fog"]
+        if cleanup then cleanup() end
+        Cache.Connections["fog"] = nil
     end
+end
+
+-- ========================================
+-- ===== PARTICLES =====
+-- ========================================
+
+local function spawnParticles()
+    if not Settings.ParticlesEnabled then return end
+    
+    for i = 1, 5 do
+        task.spawn(function()
+            local particle = Instance.new("Part")
+            particle.Shape = Enum.PartType.Ball
+            particle.Size = Vector3.new(0.5, 0.5, 0.5)
+            particle.Material = Enum.Material.Neon
+            particle.Color = COLORS.Purple
+            particle.Transparency = 0.3
+            particle.Anchored = true
+            particle.CanCollide = false
+            particle.CFrame = CFrame.new(
+                math.random(-500, 500),
+                math.random(50, 200),
+                math.random(-500, 500)
+            )
+            particle.Parent = workspace
+            
+            local lifetime = math.random(3, 8)
+            local startTime = tick()
+            
+            local conn
+            conn = RunService.Heartbeat:Connect(function()
+                local elapsed = tick() - startTime
+                if elapsed >= lifetime or not particle or not particle.Parent then
+                    pcall(function() particle:Destroy() end)
+                    safeDisconnect(conn)
+                    return
+                end
+                
+                particle.CFrame = particle.CFrame * CFrame.new(
+                    math.sin(elapsed) * 0.5,
+                    -0.3,
+                    math.cos(elapsed) * 0.5
+                )
+                particle.Transparency = 0.3 + (elapsed / lifetime) * 0.7
+            end)
+        end)
+    end
+end
+
+-- ========================================
+-- ===== SILENT AIM (НА МАРДЕРА) =====
+-- ========================================
+
+local function findAimTarget()
+    local closestPlayer = nil
+    local closestDistance = Settings.SilentAimFOV
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and checkKnife(player) then
+            local targetPos = player.Character:FindFirstChild("Head")
+            if targetPos then
+                local screenPos, onScreen = Camera:WorldToScreenPoint(targetPos.Position)
+                if onScreen then
+                    local mousePos = Mouse.Hit.Position
+                    local distance = (screenPos - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+                    
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+local aimHeartbeat = nil
+
+local function setupSilentAim()
+    if Settings.SilentAimEnabled then
+        if not aimHeartbeat then
+            aimHeartbeat = RunService.Heartbeat:Connect(function()
+                if not Settings.SilentAimEnabled then return end
+                
+                local target = findAimTarget()
+                if target and target.Character then
+                    local targetHead = target.Character:FindFirstChild("Head")
+                    if targetHead then
+                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+                    end
+                end
+            end)
+        end
+    else
+        safeDisconnect(aimHeartbeat)
+        aimHeartbeat = nil
+    end
+end
+
+-- ========================================
+-- ===== MAIN UPDATE LOOP =====
+-- ========================================
+
+local mainUpdateConnection = nil
+
+local function updateVisuals()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer or not player.Character then continue end
+        
+        local role = getRole(player)
+        
+        -- ESP
+        if Settings.MurderESP and role == "Murder" then
+            createOrUpdateHighlight(player, COLORS.Murder)
+        elseif Settings.SheriffESP and role == "Sheriff" then
+            createOrUpdateHighlight(player, COLORS.Sheriff)
+        elseif Settings.InnocentESP and role == "Innocent" then
+            createOrUpdateHighlight(player, COLORS.Innocent)
+        else
+            removeHighlight(player)
+        end
+        
+        -- Box ESP
+        if Settings.BoxMurder and role == "Murder" then
+            createBox(player, COLORS.Murder)
+        elseif Settings.BoxSheriff and role == "Sheriff" then
+            createBox(player, COLORS.Sheriff)
+        elseif Settings.BoxInnocent and role == "Innocent" then
+            createBox(player, COLORS.Innocent)
+        else
+            removeBox(player)
+        end
+        
+        -- Chams
+        if Settings.ChamsEnabled then
+            applyChams(player)
+        else
+            removeChams(player)
+        end
+        
+        -- Skeleton
+        if Settings.SkeletonESP then
+            if not Cache.Bones[player.UserId] then
+                createSkeletonForPlayer(player)
+            end
+        end
+        
+        -- Visuals
+        if Settings.JumpCircles then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Jump then
+                createJumpCircle(player)
+            end
+        end
+        
+        if Settings.ChinaHat then
+            if not player.Character:FindFirstChild("ChinaHat_Mesh") then
+                createChinaHat(player)
+            end
+        end
+        
+        if Settings.Trails then
+            if not player.Character:FindFirstChild("MurderTrail") then
+                createTrail(player)
+            end
+        end
+    end
+    
+    -- Skeleton обновления
+    if Settings.SkeletonESP then
+        updateAllSkeletons()
+    end
+    
+    -- Particles
+    if Settings.ParticlesEnabled and math.random(1, 10) == 1 then
+        spawnParticles()
+    end
+end
+
+local function startMainUpdate()
+    if mainUpdateConnection then safeDisconnect(mainUpdateConnection) end
+    
+    mainUpdateConnection = RunService.Heartbeat:Connect(function()
+        local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or 
+                         Settings.BoxMurder or Settings.BoxSheriff or Settings.BoxInnocent or
+                         Settings.ChamsEnabled or Settings.SkeletonESP or Settings.JumpCircles or
+                         Settings.ChinaHat or Settings.Trails or Settings.ParticlesEnabled
+        
+        if anyActive then
+            updateVisuals()
+        end
+    end)
 end
 
 -- ========================================
@@ -942,63 +763,62 @@ local RageTab = Window:Tab({ Title = "Rage", Icon = "sword" })
 local RageSection = RageTab:Section({ Title = "Rage Settings", Side = "Left" })
 
 -- FLY
+local flyConn = nil
+local bodyGyro = nil
+local bodyVel = nil
+
 RageSection:Toggle({
     Title = "Fly",
     Default = false,
-    Callback = function(Value)
-        FlyEnabled = Value
-        if Value then
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    Callback = function(value)
+        Settings.FlyEnabled = value
+        
+        if value then
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
             
-            FlyBodyGyro = Instance.new("BodyGyro")
-            FlyBodyGyro.Name = "FlyBodyGyro"
-            FlyBodyGyro.MaxTorque = Vector3.new(1, 1, 1) * 1e9
-            FlyBodyGyro.P = 1e4
-            FlyBodyGyro.D = 1e3
-            FlyBodyGyro.Parent = hrp
+            -- Чистим старые
+            for _, obj in ipairs(hrp:GetChildren()) do
+                if obj:IsA("BodyGyro") or obj:IsA("BodyVelocity") then obj:Destroy() end
+            end
             
-            FlyBodyVelocity = Instance.new("BodyVelocity")
-            FlyBodyVelocity.Name = "FlyBodyVelocity"
-            FlyBodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 1e9
-            FlyBodyVelocity.Parent = hrp
+            bodyGyro = Instance.new("BodyGyro")
+            bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+            bodyGyro.P = 1e4
+            bodyGyro.D = 1e3
+            bodyGyro.Parent = hrp
             
-            FlyConnection = RunService.Heartbeat:Connect(function()
-                if not FlyEnabled or not LocalPlayer.Character then return end
-                
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not hrp or not FlyBodyVelocity or not FlyBodyGyro then return end
-                
-                local cam = workspace.CurrentCamera
-                local forward = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
-                local right = cam.CFrame.RightVector * Vector3.new(1, 0, 1)
-                local move = Vector3.new(0, 0, 0)
-                
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + forward end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - forward end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - right end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + right end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                    FlyBodyVelocity.Velocity = Vector3.new(move.X * FlySpeed, FlySpeed, move.Z * FlySpeed)
-                elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                    FlyBodyVelocity.Velocity = Vector3.new(move.X * FlySpeed, -FlySpeed, move.Z * FlySpeed)
-                else
-                    FlyBodyVelocity.Velocity = Vector3.new(move.X * FlySpeed, 0, move.Z * FlySpeed)
+            bodyVel = Instance.new("BodyVelocity")
+            bodyVel.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bodyVel.Parent = hrp
+            
+            flyConn = RunService.Heartbeat:Connect(function()
+                if not Settings.FlyEnabled or not char or not hrp.Parent then
+                    safeDisconnect(flyConn)
+                    if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+                    if bodyVel then bodyVel:Destroy() bodyVel = nil end
+                    return
                 end
                 
-                FlyBodyGyro.CFrame = cam.CFrame
+                local moveDir = Vector3.new(0, 0, 0)
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+                
+                if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
+                
+                bodyVel.Velocity = moveDir * Settings.FlySpeed
+                bodyGyro.CFrame = Camera.CFrame
             end)
         else
-            if FlyConnection then FlyConnection:Disconnect() FlyConnection = nil end
-            if LocalPlayer.Character then
-                for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if v.Name == "FlyBodyGyro" or v.Name == "FlyBodyVelocity" then 
-                        v:Destroy() 
-                    end
-                end
-            end
-            FlyBodyGyro = nil
-            FlyBodyVelocity = nil
+            safeDisconnect(flyConn)
+            if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+            if bodyVel then bodyVel:Destroy() bodyVel = nil end
         end
     end
 })
@@ -1008,83 +828,52 @@ RageSection:Slider({
     Default = 80,
     Min = 10,
     Max = 200,
-    Callback = function(Value)
-        FlySpeed = Value
-    end
+    Callback = function(v) Settings.FlySpeed = v end
 })
 
 -- BUNNY HOP
+local bhopConn = nil
+
 RageSection:Toggle({
     Title = "Bunny Hop",
     Default = false,
-    Callback = function(Value)
-        BHopEnabled = Value
-        if Value then
-            BHopConnection = RunService.RenderStepped:Connect(function()
-                if not BHopEnabled or not LocalPlayer.Character then return end
+    Callback = function(value)
+        Settings.BHopEnabled = value
+        if value then
+            bhopConn = RunService.RenderStepped:Connect(function()
+                if not Settings.BHopEnabled or not LocalPlayer.Character then return end
                 
-                local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                
-                if humanoid and hrp then
-                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    if humanoid:GetState() ~= Enum.HumanoidStateType.Landed then
                         humanoid.Jump = true
-                        task.wait()
-                        humanoid.Jump = false
                     end
                 end
             end)
         else
-            if BHopConnection then BHopConnection:Disconnect() BHopConnection = nil end
-        end    end
-})
-
--- SILENT AIM (Kill through wall)
-RageSection:Toggle({
-    Title = "Silent Aim (Wall)",
-    Default = false,
-    Callback = function(Value)
-        SilentAimEnabled = Value
-    end
-})
-
-RageSection:Slider({
-    Title = "Silent Aim FOV",
-    Default = 150,
-    Min = 10,
-    Max = 500,
-    Callback = function(Value)
-        SilentAimFOV = Value
-    end
-})
-
--- TRIGGER BOT
-RageSection:Toggle({
-    Title = "Trigger Bot",
-    Default = false,
-    Callback = function(Value)
-        TriggerBotEnabled = Value
+            safeDisconnect(bhopConn)
+        end
     end
 })
 
 -- SPIN BOT
-local spinSpeed = 5
+local spinConn = nil
 
 RageSection:Toggle({
     Title = "Spin Bot",
     Default = false,
-    Callback = function(Value)
-        SpinBotEnabled = Value
-        if Value then
-            SpinConnection = RunService.Heartbeat:Connect(function()
-                if not SpinBotEnabled or not LocalPlayer.Character then return end
+    Callback = function(value)
+        Settings.SpinBotEnabled = value
+        if value then
+            spinConn = RunService.Heartbeat:Connect(function()
+                if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
                 local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then 
-                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0) 
+                if hrp then
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(Settings.SpinSpeed), 0)
                 end
             end)
         else
-            if SpinConnection then SpinConnection:Disconnect() SpinConnection = nil end
+            safeDisconnect(spinConn)
         end
     end
 })
@@ -1094,9 +883,25 @@ RageSection:Slider({
     Default = 5,
     Min = 1,
     Max = 50,
-    Callback = function(Value)
-        spinSpeed = Value
+    Callback = function(v) Settings.SpinSpeed = v end
+})
+
+-- SILENT AIM
+RageSection:Toggle({
+    Title = "Silent Aim (Murders)",
+    Default = false,
+    Callback = function(value)
+        Settings.SilentAimEnabled = value
+        setupSilentAim()
     end
+})
+
+RageSection:Slider({
+    Title = "Aim FOV",
+    Default = 150,
+    Min = 10,
+    Max = 500,
+    Callback = function(v) Settings.SilentAimFOV = v end
 })
 
 -- ========================================
@@ -1104,47 +909,52 @@ RageSection:Slider({
 -- ========================================
 
 local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
-local CombatSection = CombatTab:Section({ Title = "Combat Settings", Side = "Left" })
+local CombatSection = CombatTab:Section({ Title = "Combat", Side = "Left" })
 
 -- NOCLIP
+local noclipConn = nil
+
 CombatSection:Toggle({
     Title = "Noclip",
     Default = false,
-    Callback = function(Value)
-        NoclipEnabled = Value
-        if Value then
-            NoclipConnection = RunService.Stepped:Connect(function()
-                if NoclipEnabled and LocalPlayer.Character then
-                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then 
-                            part.CanCollide = false 
-                        end
-                    end
+    Callback = function(value)
+        Settings.NoclipEnabled = value
+        if value then
+            noclipConn = RunService.Stepped:Connect(function()
+                if not Settings.NoclipEnabled or not LocalPlayer.Character then return end
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end)
         else
-            if NoclipConnection then NoclipConnection:Disconnect() NoclipConnection = nil end
+            safeDisconnect(noclipConn)
         end
     end
 })
 
 -- ANTI FLING
+local antiFlingConn = nil
+
 CombatSection:Toggle({
     Title = "Anti Fling",
     Default = false,
-    Callback = function(Value)
-        AntiFlingEnabled = Value
-        if Value then
-            AntiFlingConnection = RunService.Heartbeat:Connect(function()
-                if not AntiFlingEnabled or not LocalPlayer.Character then return end
+    Callback = function(value)
+        Settings.AntiFlingEnabled = value
+        if value then
+            antiFlingConn = RunService.Heartbeat:Connect(function()
+                if not Settings.AntiFlingEnabled or not LocalPlayer.Character then return end
                 local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp and hrp.Velocity.Magnitude > 100 then
-                    hrp.Velocity = Vector3.new(0, 0, 0)
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                if hrp then
+                    if hrp.AssemblyLinearVelocity.Magnitude > 150 then
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    end
+                    if hrp.AssemblyAngularVelocity.Magnitude > 50 then
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    end
                 end
             end)
         else
-            if AntiFlingConnection then AntiFlingConnection:Disconnect() AntiFlingConnection = nil end
+            safeDisconnect(antiFlingConn)
         end
     end
 })
@@ -1152,21 +962,37 @@ CombatSection:Toggle({
 -- GRAB GUN
 CombatSection:Button({
     Title = "Grab Gun",
-    Description = "Teleport to sheriff's gun",
     Callback = function()
-        grabGun()
+        local gunModel = nil
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Tool") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol")) then
+                gunModel = obj
+                break
+            end
+        end
+        
+        if gunModel then
+            local handle = gunModel:FindFirstChild("Handle")
+            if handle and LocalPlayer.Character then
+                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
+                    StarterGui:SetCore("SendNotification", {Title = "Gun", Text = "Teleported!", Duration = 2})
+                end
+            end
+        end
     end
 })
 
--- FOV CHANGER
+-- FOV
 CombatSection:Slider({
-    Title = "FOV Changer",
+    Title = "FOV",
     Default = 70,
     Min = 50,
     Max = 120,
-    Callback = function(Value)
-        FOVChanger = Value
-        Camera.FieldOfView = Value
+    Callback = function(v)
+        Settings.FOVChanger = v
+        Camera.FieldOfView = v
     end
 })
 
@@ -1175,160 +1001,102 @@ CombatSection:Slider({
 -- ========================================
 
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
-local VisualSection = VisualTab:Section({ Title = "ESP Settings", Side = "Left" })
+local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
+local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
 
--- XRAY
+-- ESP TOGGLES
 VisualSection:Toggle({
-    Title = "XRay",
+    Title = "ESP Murder",
     Default = false,
-    Callback = function(Value)
-        XRayEnabled = Value
-        for _, part in ipairs(Workspace:GetDescendants()) do
-            if part:IsA("BasePart") and not part:IsA("Terrain") then
-                part.LocalTransparencyModifier = Value and 0.7 or 0
-            end
-        end
-    end
-})
-
--- HIGHLIGHT ESP
-VisualSection:Toggle({
-    Title = "ESP Murder (Red)",
-    Default = false,
-    Callback = function(Value)
-        MurderESP = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.MurderESP = v startMainUpdate() end
 })
 
 VisualSection:Toggle({
-    Title = "ESP Sheriff (Blue)",
+    Title = "ESP Sheriff",
     Default = false,
-    Callback = function(Value)
-        SheriffESP = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.SheriffESP = v startMainUpdate() end
 })
 
 VisualSection:Toggle({
-    Title = "ESP Innocent (Green)",
+    Title = "ESP Innocent",
     Default = false,
-    Callback = function(Value)
-        InnocentESP = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.InnocentESP = v startMainUpdate() end
 })
 
 -- BOX ESP
 VisualSection:Toggle({
     Title = "Box Murder",
     Default = false,
-    Callback = function(Value)
-        BoxMurder = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.BoxMurder = v startMainUpdate() end
 })
 
 VisualSection:Toggle({
     Title = "Box Sheriff",
     Default = false,
-    Callback = function(Value)
-        BoxSheriff = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.BoxSheriff = v startMainUpdate() end
 })
 
 VisualSection:Toggle({
     Title = "Box Innocent",
     Default = false,
-    Callback = function(Value)
-        BoxInnocent = Value
-        setupESP()
-    end
-})
-
--- SKELETON ESP
-VisualSection:Toggle({
-    Title = "Skeleton ESP",
-    Default = false,
-    Callback = function(Value)
-        SkeletonESP = Value
-        if Value then
-            updateSkeletons()
-        else
-            clearAllSkeletons()
-        end
-        setupESP()
-    end
+    Callback = function(v) Settings.BoxInnocent = v startMainUpdate() end
 })
 
 -- CHAMS
-local ChamsSection = VisualTab:Section({ Title = "Chams Settings", Side = "Right" })
-
-ChamsSection:Toggle({
+VisualSection:Toggle({
     Title = "Chams (Purple All)",
     Default = false,
-    Callback = function(Value)
-        ChamsEnabled = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.ChamsEnabled = v startMainUpdate() end
 })
 
-ChamsSection:Toggle({
-    Title = "Chams Murder",
+VisualSection:Toggle({
+    Title = "Chams Murder Color",
     Default = false,
-    Callback = function(Value)
-        ChamsMurder = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.ChamsMurder = v end
 })
 
-ChamsSection:Toggle({
-    Title = "Chams Sheriff",
+VisualSection:Toggle({
+    Title = "Chams Sheriff Color",
     Default = false,
-    Callback = function(Value)
-        ChamsSheriff = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.ChamsSheriff = v end
 })
 
-ChamsSection:Toggle({
-    Title = "Chams Innocent",
+-- SKELETON
+VisualSection:Toggle({
+    Title = "Skeleton ESP",
     Default = false,
-    Callback = function(Value)
-        ChamsInnocent = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.SkeletonESP = v if not v then clearAllSkeletons() end startMainUpdate() end
 })
 
--- VISUAL EFFECTS
-local EffectsSection = VisualTab:Section({ Title = "Visual Effects", Side = "Right" })
-
-EffectsSection:Toggle({
-    Title = "Jump Circle",
+-- EFFECTS
+VisualSection2:Toggle({
+    Title = "Jump Circles",
     Default = false,
-    Callback = function(Value)
-        JumpCircle = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.JumpCircles = v startMainUpdate() end
 })
 
-EffectsSection:Toggle({
+VisualSection2:Toggle({
     Title = "China Hat",
     Default = false,
-    Callback = function(Value)
-        ChinaHat = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.ChinaHat = v startMainUpdate() end
 })
 
-EffectsSection:Toggle({
-    Title = "Trail",
+VisualSection2:Toggle({
+    Title = "Trails",
     Default = false,
-    Callback = function(Value)
-        Trail = Value
-        setupESP()
-    end
+    Callback = function(v) Settings.Trails = v startMainUpdate() end
+})
+
+VisualSection2:Toggle({
+    Title = "Purple Fog",
+    Default = false,
+    Callback = function(v) Settings.FogEnabled = v setupFog() end
+})
+
+VisualSection2:Toggle({
+    Title = "Particles",
+    Default = false,
+    Callback = function(v) Settings.ParticlesEnabled = v startMainUpdate() end
 })
 
 -- ========================================
@@ -1336,108 +1104,8 @@ EffectsSection:Toggle({
 -- ========================================
 
 local FlingTab = Window:Tab({ Title = "Fling", Icon = "rocket" })
-local FlingSection = FlingTab:Section({ Title = "Fling Settings", Side = "Left" })
+local FlingSection = FlingTab:Section({ Title = "Fling", Side = "Left" })
 
--- FLING MODE
-FlingSection:Toggle({
-    Title = "Super Fling",
-    Default = false,
-    Callback = function(Value)
-        FlingEnabled = Value
-        if Value then
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp then
-                FlingEnabled = false
-                return
-            end
-            
-            FlingPart = Instance.new("Part")
-            FlingPart.Name = "FlingPart"
-            FlingPart.Size = Vector3.new(2, 0.5, 2)
-            FlingPart.Anchored = true
-            FlingPart.CanCollide = false
-            FlingPart.Transparency = 1
-            FlingPart.Position = hrp.Position
-            FlingPart.Parent = workspace
-            
-            local alignPos = Instance.new("AlignPosition")
-            alignPos.Attachment0 = Instance.new("Attachment", hrp)
-            alignPos.Attachment1 = Instance.new("Attachment", FlingPart)
-            alignPos.RigidityEnabled = true
-            alignPos.Responsiveness = math.huge
-            alignPos.MaxForce = math.huge
-            alignPos.MaxVelocity = math.huge
-            alignPos.Parent = FlingPart
-            
-            local att0 = hrp:FindFirstChildOfClass("Attachment")
-            local att1 = FlingPart:FindFirstChildOfClass("Attachment")
-            if att0 and att1 then
-                alignPos.Attachment0 = att0
-                alignPos.Attachment1 = att1
-            end
-            
-            local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-            if humanoid then
-                pcall(function()
-                    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-                end)
-            end
-            
-            FlingConnection = RunService.Heartbeat:Connect(function()
-                if not FlingEnabled or not LocalPlayer.Character or not FlingPart then return end
-                
-                local hrp2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not hrp2 then return end
-                
-                hrp2.AssemblyAngularVelocity = Vector3.new(
-                    math.random(-500, 500),
-                    math.random(-500, 500),
-                    math.random(-500, 500)
-                ) * 2
-                
-                hrp2.Velocity = Vector3.new(
-                    math.random(-200, 200),
-                    math.random(-500, 500),
-                    math.random(-200, 200)
-                )
-                
-                if math.random(1, 3) == 1 then
-                    local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-                    if humanoid then
-                        pcall(function() humanoid.Jump = true end)
-                    end
-                end
-            end)
-        else
-            if FlingConnection then 
-                FlingConnection:Disconnect() 
-                FlingConnection = nil 
-            end
-            
-            if FlingPart then 
-                FlingPart:Destroy() 
-                FlingPart = nil 
-            end
-            
-            if LocalPlayer.Character then
-                local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-                if humanoid then
-                    pcall(function()
-                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                    end)
-                end
-                
-                for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if v:IsA("AlignPosition") then
-                        v:Destroy()
-                    end
-                end
-            end
-        end
-    end
-})
-
--- FLING MURDER
 FlingSection:Button({
     Title = "Fling Murder",
     Callback = function()
@@ -1445,21 +1113,13 @@ FlingSection:Button({
             if player ~= LocalPlayer and player.Character and checkKnife(player) then
                 local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    hrp.Velocity = Vector3.new(0, 500, 0)
-                    task.wait(0.1)
-                    hrp.Velocity = Vector3.new(9999, 9999, 9999)
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "Fling",
-                        Text = "Murder flinged: " .. player.Name,
-                        Duration = 3
-                    })
+                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
                 end
             end
         end
     end
 })
 
--- FLING SHERIFF
 FlingSection:Button({
     Title = "Fling Sheriff",
     Callback = function()
@@ -1467,21 +1127,13 @@ FlingSection:Button({
             if player ~= LocalPlayer and player.Character and checkGun(player) then
                 local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    hrp.Velocity = Vector3.new(0, 500, 0)
-                    task.wait(0.1)
-                    hrp.Velocity = Vector3.new(9999, 9999, 9999)
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "Fling",
-                        Text = "Sheriff flinged: " .. player.Name,
-                        Duration = 3
-                    })
+                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
                 end
             end
         end
     end
 })
 
--- FLING ALL
 FlingSection:Button({
     Title = "Fling All",
     Callback = function()
@@ -1489,71 +1141,11 @@ FlingSection:Button({
             if player ~= LocalPlayer and player.Character then
                 local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    hrp.Velocity = Vector3.new(0, 500, 0)
-                    task.wait(0.05)
-                    hrp.Velocity = Vector3.new(9999, 9999, 9999)
+                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
                 end
             end
         end
-        StarterGui:SetCore("SendNotification", {
-            Title = "Fling",
-            Text = "All players flinged!",
-            Duration = 3
-        })
-    end
-})
-
--- ========================================
--- ===== CONFIGS TAB =====
--- ========================================
-
-local ConfigsTab = Window:Tab({ Title = "Configs", Icon = "save" })
-local ConfigsSection = ConfigsTab:Section({ Title = "Config Settings", Side = "Left" })
-
-local ConfigNameInput = ""
-
-ConfigsSection:Input({
-    Title = "Config Name",
-    Default = "MyConfig",
-    Placeholder = "Enter config name...",
-    Callback = function(Value)
-        ConfigNameInput = Value
-    end
-})
-
-ConfigsSection:Button({
-    Title = "Save Config",
-    Callback = function()
-        local name = ConfigNameInput ~= "" and ConfigNameInput or "Config_" .. tick()
-        saveConfig(name)
-    end
-})
-
-ConfigsSection:Button({
-    Title = "Load Config",
-    Callback = function()
-        local name = ConfigNameInput ~= "" and ConfigNameInput or "Default"
-        loadConfig(name)
-    end
-})
-
-ConfigsSection:Button({
-    Title = "Delete Config",
-    Callback = function()
-        local name = ConfigNameInput ~= "" and ConfigNameInput or "Default"
-        deleteConfig(name)
-    end
-})
-
-ConfigsSection:Button({
-    Title = "Refresh Config List",
-    Callback = function()
-        local list = getConfigList()
-        if #list > 0 then
-            print("Configs: " .. table.concat(list, ", "))
-        else
-            print("No configs found")
-        end
+        StarterGui:SetCore("SendNotification", {Title = "Fling", Text = "All flinged!", Duration = 2})
     end
 })
 
@@ -1565,58 +1157,51 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v2.0",
-    Description = "Premium hub for Murder Mystery",
-    Icon = "info"
+    Title = "Murder Hub v3.0",
+    Description = "Optimized & Working",
+    Icon = "crown"
 })
 
 SettingsSection:Button({
-    Title = "Destroy UI",
-    Description = "Close the hub",
-    Callback = function()
-        Window:Destroy()
-    end
-})
-
-SettingsSection:Button({
-    Title = "Rejoin Game",
-    Callback = function()
-        TeleportService = game:GetService("TeleportService")
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-    end
+    Title = "Close UI",
+    Callback = function() Window:Destroy() end
 })
 
 -- ========================================
 -- ===== ИНИЦИАЛИЗАЦИЯ =====
 -- ========================================
 
--- Grab Gun система
-setupGrabGun()
-
--- Очистка при смене персонажа
-LocalPlayer.CharacterAdded:Connect(function()
-    clearAllHighlights()
-    clearAllSkeletons()
-    clearBoxes()
-    clearVisualEffects()
-    
-    -- Перезапуск флая
-    if FlyEnabled then
-        FlyEnabled = false
+-- New player handler
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
         task.wait(0.5)
-        FlyEnabled = true
+        if Settings.SkeletonESP then
+            createSkeletonForPlayer(player)
+        end
+    end)
+end)
+
+-- Character respawn handler
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    clearAllHighlights()
+    clearAllBoxes()
+    clearAllChams()
+    clearAllSkeletons()
+    
+    if Settings.FlyEnabled then
+        Settings.FlyEnabled = false
+        task.wait(0.2)
+        Settings.FlyEnabled = true
     end
 end)
 
--- Очистка при выходе
-LocalPlayer.CharacterRemoving:Connect(function()
-    clearVisualEffects()
-end)
+-- Startup
+startMainUpdate()
 
--- Создание скелетонов для уже существующих игроков
-task.wait(1)
-for _, player in ipairs(Players:GetPlayers()) do
-    if player.Character then
-        createSkeletonForPlayer(player)
-    end
-end
+print("✅ Murder Hub v3.0 Loaded!")
+StarterGui:SetCore("SendNotification", {
+    Title = "Murder Hub",
+    Text = "✅ v3.0 Loaded & Optimized!",
+    Duration = 5
+})
