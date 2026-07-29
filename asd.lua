@@ -97,7 +97,8 @@ local Cache = {
     Connections = {},
     ChamsParts = {},
     Particles = {},
-    PostEffects = {}
+    PostEffects = {},
+    JumpTracking = {}
 }
 
 local COLORS = {
@@ -281,7 +282,7 @@ local SKELETON_BONES = {
     {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"},
     {"UpperTorso", "LowerTorso"},
     {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"},
+    {"LowerTorso", "RightUpperLeg"} , {"RightUpperLeg", "RightLowerLeg"},
 }
 
 local function createSkeletonForPlayer(player)
@@ -354,50 +355,114 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== PURPLE GLOW JUMP CIRCLES =====
+-- ===== PERFECT JUMP CIRCLES =====
 -- ========================================
 
-local function createJumpCircle(player)
-    if not player or not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+local jumpTracking = {}
+
+local function createJumpCircleAtPosition(position)
+    if not Settings.JumpCircles then return end
     
-    local circle = Instance.new("Part")
-    circle.Shape = Enum.PartType.Cylinder
-    circle.Size = Vector3.new(0.1, 5, 5)
-    circle.Material = Enum.Material.Neon
-    circle.Color = COLORS.Purple
-    circle.Transparency = 0.2
-    circle.Anchored = true
-    circle.CanCollide = false
-    circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
-    circle.Parent = workspace
+    -- Создаём Part в виде кольца
+    local ring = Instance.new("Part")
+    ring.Shape = Enum.PartType.Cylinder
+    ring.Size = Vector3.new(0.05, 0.5, 0.5)
+    ring.Material = Enum.Material.Neon
+    ring.Color = COLORS.Purple
+    ring.Transparency = 0
+    ring.Anchored = true
+    ring.CanCollide = false
+    ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
+    ring.Parent = workspace
     
-    -- Добавляем свечение
+    -- Light для свечения
     local light = Instance.new("PointLight")
-    light.Brightness = 3
+    light.Brightness = 5
     light.Color = COLORS.Purple
-    light.Range = 20
-    light.Parent = circle
+    light.Range = 25
+    light.Parent = ring
     
     local startTime = tick()
-    local lifeTime = 0.6
+    local duration = 0.8
     
     local conn
     conn = RunService.Heartbeat:Connect(function()
-        local elapsed = tick() - startTime
-        if elapsed >= lifeTime or not circle or not circle.Parent then
-            pcall(function() circle:Destroy() end)
+        if not ring or not ring.Parent then
             safeDisconnect(conn)
             return
         end
         
-        local alpha = elapsed / lifeTime
-        circle.Size = Vector3.new(0.1, 5 + alpha * 8, 5 + alpha * 8)
-        circle.Transparency = 0.2 + alpha * 0.8
-        light.Brightness = 3 * (1 - alpha)
-        circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
+        local elapsed = tick() - startTime
+        local progress = elapsed / duration
+        
+        if progress >= 1 then
+            pcall(function() ring:Destroy() end)
+            safeDisconnect(conn)
+            return
+        end
+        
+        -- Увеличиваем размер кольца
+        local scale = 0.5 + (progress * 4.5)
+        ring.Size = Vector3.new(0.05, scale, scale)
+        
+        -- Плавное исчезновение
+        ring.Transparency = progress
+        light.Brightness = 5 * (1 - progress)
+        
+        ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
     end)
+end
+
+local function setupJumpTracking()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if not jumpTracking[player.UserId] then
+            if player.Character then
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    jumpTracking[player.UserId] = {
+                        wasJumping = false,
+                        lastJumpPos = player.Character:FindFirstChild("HumanoidRootPart").Position
+                    }
+                end
+            end
+        end
+    end
+end
+
+local jumpCircleUpdateConnection = nil
+
+local function updateJumpCircles()
+    if not Settings.JumpCircles then return end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if not player or not player.Character then continue end
+        
+        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        
+        if humanoid and hrp then
+            local tracking = jumpTracking[player.UserId]
+            if not tracking then
+                tracking = {wasJumping = false, lastJumpPos = hrp.Position}
+                jumpTracking[player.UserId] = tracking
+            end
+            
+            local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
+            
+            -- Обнаруживаем момент начала прыжка
+            if isJumping and not tracking.wasJumping then
+                createJumpCircleAtPosition(tracking.lastJumpPos)
+            end
+            
+            tracking.wasJumping = isJumping
+            
+            -- Обновляем позицию когда игрок на земле
+            if humanoid:GetState() == Enum.HumanoidStateType.Landed or
+               humanoid:GetState() == Enum.HumanoidStateType.Running then
+                tracking.lastJumpPos = hrp.Position
+            end
+        end
+    end
 end
 
 -- ========================================
@@ -442,7 +507,7 @@ local function createLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== СИСТЕМА ЧАСТИЦ (100 ШТ / 50М) =====
+-- ===== СИСТЕМА ЧАСТИЦ (ОПТИМИЗИРОВАННАЯ) =====
 -- ========================================
 
 local particleSpawnConnection = nil
@@ -488,6 +553,8 @@ local function createOptimizedParticle(position)
 end
 
 local function updateParticles()
+    if not Settings.ParticlesEnabled then return end
+    
     local toRemove = {}
     
     for i, particle in ipairs(activeParticles) do
@@ -650,7 +717,7 @@ local function createCrosshair()
 end
 
 -- ========================================
--- ===== FLING (OPEN SOURCE) =====
+-- ===== РАБОЧИЙ FLING =====
 -- ========================================
 
 local flingConnection = nil
@@ -665,54 +732,65 @@ local function startFling()
         
         if not humanoid or not hrp then return end
         
-        pcall(function()
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, false)
-            humanoid:ChangeState(Enum.HumanoidStateType.Flying)
-        end)
-        
         flingConnection = RunService.Heartbeat:Connect(function()
             if not Settings.FlingEnabled or not character or not hrp.Parent then
-                pcall(function()
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-                end)
                 safeDisconnect(flingConnection)
                 return
             end
             
-            hrp.CFrame = hrp.CFrame + (hrp.CFrame.LookVector * Vector3.new(100, 100, 100))
-            hrp.Velocity = (hrp.CFrame.LookVector * Vector3.new(100, 100, 100)) * 249
+            -- Простой и эффективный флинг
+            hrp.Velocity = hrp.CFrame.LookVector * 100 + Vector3.new(0, 100, 0)
+            hrp.RotVelocity = Vector3.new(500, 500, 500)
             
-            pcall(function()
-                humanoid:ChangeState(Enum.HumanoidStateType.Flying)
-            end)
+            humanoid.Jump = true
         end)
     else
         safeDisconnect(flingConnection)
-        local character = LocalPlayer.Character
-        if character then
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                pcall(function()
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
-                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-                end)
+    end
+end
+
+-- ========================================
+-- ===== ANTI FLING (УБИРАЕТ КОЛЛИЗИИ) =====
+-- ========================================
+
+local antiFlingConnection = nil
+
+local function setupAntiFling()
+    if Settings.AntiFlingEnabled then
+        antiFlingConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.AntiFlingEnabled or not LocalPlayer.Character then return end
+            
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            -- Убираем коллизии с игроками
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
+                    if theirHrp then
+                        theirHrp.CanCollide = false
+                    end
+                end
+            end
+            
+            -- Стоп флинг
+            if hrp.AssemblyLinearVelocity.Magnitude > 150 then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end
+            if hrp.AssemblyAngularVelocity.Magnitude > 50 then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    else
+        safeDisconnect(antiFlingConnection)
+        
+        -- Возвращаем коллизии
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if theirHrp then
+                    theirHrp.CanCollide = true
+                end
             end
         end
     end
@@ -761,14 +839,6 @@ local function updateVisuals()
                     createSkeletonForPlayer(player)
                 end
             end
-            
-            -- Jump Circles
-            if Settings.JumpCircles then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid and humanoid.Jump then
-                    createJumpCircle(player)
-                end
-            end
         end
     end
     
@@ -799,20 +869,26 @@ local function startMainUpdate()
         if anyActive then
             updateVisuals()
         end
+        
+        -- Jump circles update
+        if Settings.JumpCircles then
+            updateJumpCircles()
+        end
+        
+        -- Particles update
+        if Settings.ParticlesEnabled then
+            updateParticles()
+        end
     end)
     
+    -- Particle spawn
     if particleSpawnConnection then safeDisconnect(particleSpawnConnection) end
-    if particleUpdateConnection then safeDisconnect(particleUpdateConnection) end
     
     if Settings.ParticlesEnabled then
         particleSpawnConnection = RunService.Heartbeat:Connect(function()
-            if Settings.ParticlesEnabled and math.random(1, 10) == 1 then
+            if Settings.ParticlesEnabled and math.random(1, 5) == 1 then
                 spawnParticles()
             end
-        end)
-        
-        particleUpdateConnection = RunService.Heartbeat:Connect(function()
-            updateParticles()
         end)
     end
 end
@@ -931,7 +1007,7 @@ RageSection:Toggle({
     end
 })
 
--- FLING (OPEN SOURCE)
+-- FLING (РАБОЧИЙ)
 RageSection:Toggle({
     Title = "Super Fling",
     Default = false,
@@ -969,30 +1045,13 @@ CombatSection:Toggle({
     end
 })
 
--- ANTI FLING
-local antiFlingConn = nil
-
+-- ANTI FLING (УБИРАЕТ КОЛЛИЗИИ)
 CombatSection:Toggle({
     Title = "Anti Fling",
     Default = false,
     Callback = function(value)
         Settings.AntiFlingEnabled = value
-        if value then
-            antiFlingConn = RunService.Heartbeat:Connect(function()
-                if not Settings.AntiFlingEnabled or not LocalPlayer.Character then return end
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    if hrp.AssemblyLinearVelocity.Magnitude > 150 then
-                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    end
-                    if hrp.AssemblyAngularVelocity.Magnitude > 50 then
-                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                    end
-                end
-            end)
-        else
-            safeDisconnect(antiFlingConn)
-        end
+        setupAntiFling()
     end
 })
 
@@ -1065,7 +1124,11 @@ VisualSection:Toggle({
 VisualSection:Toggle({
     Title = "Jump Circles",
     Default = false,
-    Callback = function(v) Settings.JumpCircles = v startMainUpdate() end
+    Callback = function(v) 
+        Settings.JumpCircles = v 
+        setupJumpTracking()
+        startMainUpdate()
+    end
 })
 
 VisualSection:Toggle({
@@ -1198,7 +1261,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v6.0",
+    Title = "Murder Hub v7.0",
     Description = "Final Edition",
     Icon = "crown"
 })
@@ -1226,6 +1289,9 @@ Players.PlayerAdded:Connect(function(player)
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
         end
+        if Settings.JumpCircles then
+            jumpTracking[player.UserId] = {wasJumping = false, lastJumpPos = player.Character:FindFirstChild("HumanoidRootPart").Position}
+        end
     end)
 end)
 
@@ -1235,6 +1301,10 @@ LocalPlayer.CharacterAdded:Connect(function()
     clearAllChams()
     clearAllSkeletons()
     
+    if Settings.JumpCircles then
+        setupJumpTracking()
+    end
+    
     if Settings.FlyEnabled then
         Settings.FlyEnabled = false
         task.wait(0.2)
@@ -1243,10 +1313,11 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 startMainUpdate()
+setupJumpTracking()
 
-print("✅ Murder Hub v6.0 Loaded!")
+print("✅ Murder Hub v7.0 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Murder Hub",
-    Text = "✅ v6.0 Final Edition!",
+    Text = "✅ v7.0 Final Edition!",
     Duration = 5
 })
