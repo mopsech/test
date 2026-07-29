@@ -53,6 +53,8 @@ local Settings = {
     Trails = false,
     FogEnabled = false,
     ParticlesEnabled = false,
+    RGBHumanoid = false,
+    NimbEnabled = false,
     
     -- Particles
     ParticleCount = 100,
@@ -77,7 +79,6 @@ local Settings = {
     MaxFlySpeed = 1000,
     BHopEnabled = false,
     SpinBotEnabled = false,
-    SpinSpeed = 300,
     
     -- Combat
     NoclipEnabled = false,
@@ -91,8 +92,8 @@ local Settings = {
     -- Anti-AFK
     AntiAFKEnabled = false,
     
-    -- Auto Jump Bomb
-    AutoJumpBombEnabled = false
+    -- AutoFarm
+    AutoFarmEnabled = false
 }
 
 -- ========================================
@@ -107,7 +108,10 @@ local Cache = {
     ChamsParts = {},
     Particles = {},
     PostEffects = {},
-    JumpTracking = {}
+    JumpTracking = {},
+    RGBConnection = nil,
+    NimbConnection = nil,
+    NimbPart = nil
 }
 
 local COLORS = {
@@ -218,7 +222,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS (ВЫПУКЛОСТЬ) =====
+-- ===== CHAMS =====
 -- ========================================
 
 local function applyChams(player)
@@ -237,25 +241,9 @@ local function applyChams(player)
             end
             
             if Settings.ChamsEnabled then
-                -- Создаём выпуклый эффект
                 part.Material = Enum.Material.Neon
                 part.Color = COLORS.Purple
                 part.Transparency = 0.1
-                
-                -- Добавляем Surface Shine
-                local surfaceGui = part:FindFirstChild("SurfaceGui")
-                if not surfaceGui then
-                    surfaceGui = Instance.new("SurfaceGui")
-                    surfaceGui.Face = Enum.NormalId.Front
-                    surfaceGui.Parent = part
-                    
-                    local shine = Instance.new("Frame")
-                    shine.Size = UDim2.new(1, 0, 1, 0)
-                    shine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                    shine.BackgroundTransparency = 0.8
-                    shine.BorderSizePixel = 0
-                    shine.Parent = surfaceGui
-                end
             end
         end
     end
@@ -275,9 +263,6 @@ local function removeChams(player)
                 part.Material = data.ogMaterial
                 part.Color = data.ogColor
                 part.Transparency = data.ogTransparency
-                
-                local surfaceGui = part:FindFirstChild("SurfaceGui")
-                if surfaceGui then surfaceGui:Destroy() end
             end)
         end
     end
@@ -293,14 +278,106 @@ local function clearAllChams()
                     part.Material = data.ogMaterial
                     part.Color = data.ogColor
                     part.Transparency = data.ogTransparency
-                    
-                    local surfaceGui = part:FindFirstChild("SurfaceGui")
-                    if surfaceGui then surfaceGui:Destroy() end
                 end)
             end
         end
     end
     Cache.ChamsParts = {}
+end
+
+-- ========================================
+-- ===== RGB HUMANOID =====
+-- ========================================
+
+local function setupRGBHumanoid()
+    if Settings.RGBHumanoid then
+        safeDisconnect(Cache.RGBConnection)
+        
+        Cache.RGBConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.RGBHumanoid or not LocalPlayer.Character then return end
+            
+            local t = tick()
+            local color = Color3.fromHSV(t % 1, 1, 1)
+            
+            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.Material = Enum.Material.Neon
+                    part.Color = color
+                    part.Transparency = 0.1
+                end
+            end
+        end)
+    else
+        safeDisconnect(Cache.RGBConnection)
+        Cache.RGBConnection = nil
+        
+        if LocalPlayer.Character then
+            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Material = Enum.Material.Plastic
+                    part.Color = Color3.fromRGB(255, 255, 255)
+                    part.Transparency = 0
+                end
+            end
+        end
+    end
+end
+
+-- ========================================
+-- ===== NIMB (ОРЕОЛ) =====
+-- ========================================
+
+local function setupNimb()
+    if Settings.NimbEnabled then
+        if not LocalPlayer.Character then return end
+        
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        if Cache.NimbPart then
+            pcall(function() Cache.NimbPart:Destroy() end)
+        end
+        
+        local nimb = Instance.new("Part")
+        nimb.Name = "Nimb"
+        nimb.Shape = Enum.PartType.Ball
+        nimb.Size = Vector3.new(5, 5, 5)
+        nimb.Material = Enum.Material.Neon
+        nimb.Color = COLORS.Purple
+        nimb.Transparency = 0.5
+        nimb.CanCollide = false
+        nimb.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
+        nimb.TopSurface = Enum.SurfaceType.Smooth
+        nimb.BottomSurface = Enum.SurfaceType.Smooth
+        nimb.Parent = LocalPlayer.Character
+        
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = nimb
+        weld.Part1 = hrp
+        weld.Parent = nimb
+        
+        Cache.NimbPart = nimb
+        
+        safeDisconnect(Cache.NimbConnection)
+        Cache.NimbConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.NimbEnabled or not Cache.NimbPart or not Cache.NimbPart.Parent then
+                safeDisconnect(Cache.NimbConnection)
+                Cache.NimbConnection = nil
+                return
+            end
+            
+            local t = tick()
+            Cache.NimbPart.Color = Color3.fromHSV(t % 1, 1, 1)
+            Cache.NimbPart.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
+        end)
+    else
+        safeDisconnect(Cache.NimbConnection)
+        Cache.NimbConnection = nil
+        if Cache.NimbPart then
+            pcall(function() Cache.NimbPart:Destroy() end)
+            Cache.NimbPart = nil
+        end
+    end
 end
 
 -- ========================================
@@ -394,7 +471,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES =====
+-- ===== JUMP CIRCLES (1 КРУГ) =====
 -- ========================================
 
 local jumpTracking = {}
@@ -463,10 +540,9 @@ local function updateJumpCircles()
         if not player or not player.Character then continue end
         
         local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-        local leftFoot = player.Character:FindFirstChild("LeftFoot")
-        local rightFoot = player.Character:FindFirstChild("RightFoot")
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
         
-        if humanoid and (leftFoot or rightFoot) then
+        if humanoid and hrp then
             local tracking = jumpTracking[player.UserId]
             if not tracking then
                 tracking = {wasJumping = false}
@@ -476,12 +552,7 @@ local function updateJumpCircles()
             local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
             
             if isJumping and not tracking.wasJumping then
-                if leftFoot then
-                    createJumpCircleAtPosition(leftFoot.Position)
-                end
-                if rightFoot then
-                    createJumpCircleAtPosition(rightFoot.Position)
-                end
+                createJumpCircleAtPosition(hrp.Position)
             end
             
             tracking.wasJumping = isJumping
@@ -490,7 +561,7 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== TRAILS =====
+-- ===== TRAILS (СРАЗУ ПОСЛЕ ВКЛЮЧЕНИЯ) =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -774,7 +845,7 @@ local function setupWallThought()
 end
 
 -- ========================================
--- ===== AIMBOT (ШИФТЛОК ТЕЛЕФОН) =====
+-- ===== AIMBOT =====
 -- ========================================
 
 local aimbotConnection = nil
@@ -806,7 +877,6 @@ local function setupAimbot()
             if closestPlayer and closestPlayer.Character then
                 local targetHead = closestPlayer.Character:FindFirstChild("Head")
                 if targetHead then
-                    -- Оптимизировано под шифтлок
                     Camera.Focus = targetHead
                 end
             end
@@ -840,7 +910,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== NORMAL FLY (РАБОЧИЙ) =====
+-- ===== NORMAL FLY =====
 -- ========================================
 
 local flyConnection = nil
@@ -913,137 +983,23 @@ local function stopFly()
 end
 
 -- ========================================
--- ===== AUTO JUMP BOMB =====
+-- ===== SPIN BOT (НОРМАЛЬНЫЙ, БЕЗ ОСТАНОВКИ) =====
 -- ========================================
 
-local jumpBombGui = nil
-local jumpBombConnection = nil
-local canThrowBomb = true
+local spinConnection = nil
 
-local function createJumpBombButton()
-    if jumpBombGui then jumpBombGui:Destroy() end
-    
-    jumpBombGui = Instance.new("ScreenGui")
-    jumpBombGui.Name = "JumpBombButton"
-    jumpBombGui.ResetOnSpawn = false
-    jumpBombGui.IgnoreGuiInset = true
-    
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 80, 0, 50)
-    button.Position = UDim2.new(0.5, -40, 0.85, 0)
-    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    button.Text = "JUMP"
-    button.TextSize = 18
-    button.TextColor3 = COLORS.Purple
-    button.BorderSizePixel = 0
-    button.Parent = jumpBombGui
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = button
-    
-    local function throwBomb()
-        if not LocalPlayer.Character then return end
-        
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        if backpack then
-            local bomb = backpack:FindFirstChild("Bomb")
-            if bomb then
-                local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                
-                if humanoid and hrp then
-                    -- Бросаем бомбу
-                    humanoid:EquipTool(bomb)
-                    task.wait(0.1)
-                    bomb:Activate()
-                    
-                    -- Двойной прыжок
-                    humanoid.Jump = true
-                    task.wait(0.2)
-                    humanoid.Jump = true
-                end
-            end
-        end
-    end
-    
-    button.MouseButton1Click:Connect(throwBomb)
-    jumpBombGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local function setupAutoJumpBomb()
-    if Settings.AutoJumpBombEnabled then
-        createJumpBombButton()
-        
-        UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.KeyCode == Enum.KeyCode.R then
-                if not LocalPlayer.Character then return end
-                
-                local backpack = LocalPlayer:FindFirstChild("Backpack")
-                if backpack then
-                    local bomb = backpack:FindFirstChild("Bomb")
-                    if bomb then
-                        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        
-                        if humanoid and hrp then
-                            humanoid:EquipTool(bomb)
-                            task.wait(0.1)
-                            bomb:Activate()
-                            
-                            humanoid.Jump = true
-                            task.wait(0.2)
-                            humanoid.Jump = true
-                        end
-                    end
-                end
+local function setupSpinBot()
+    if Settings.SpinBotEnabled then
+        spinConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(10), 0)
             end
         end)
     else
-        if jumpBombGui then
-            jumpBombGui:Destroy()
-            jumpBombGui = nil
-        end
+        safeDisconnect(spinConnection)
     end
-end
-
--- ========================================
--- ===== SHERIFF DEAD NOTIF =====
--- ========================================
-
-local function setupSheriffDeadNotif()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            player.CharacterRemoving:Connect(function(character)
-                if checkGun(player) then
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "⚠️ SHERIFF",
-                        Text = player.Name .. " is dead!",
-                        Duration = 3,
-                        Icon = "rbxasset://textures/face.png"
-                    })
-                end
-            end)
-        end
-    end
-    
-    Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(character)
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.Died:Connect(function()
-                    if checkGun(player) then
-                        StarterGui:SetCore("SendNotification", {
-                            Title = "⚠️ SHERIFF",
-                            Text = player.Name .. " is dead!",
-                            Duration = 3
-                        })
-                    end
-                end)
-            end
-        end)
-    end)
 end
 
 -- ========================================
@@ -1054,7 +1010,6 @@ local selectedFlingTarget = nil
 
 local function flingTarget()
     if not selectedFlingTarget or not selectedFlingTarget.Character then
-        -- Выбираем ближайшего
         local closestPlayer = nil
         local closestDist = 100
         
@@ -1091,27 +1046,6 @@ local function flingTarget()
                 Duration = 2
             })
         end
-    end
-end
-
--- ========================================
--- ===== SPIN BOT 300/SEC =====
--- ========================================
-
-local spinConnection = nil
-
-local function setupSpinBot()
-    if Settings.SpinBotEnabled then
-        spinConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
-            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                -- 300 оборотов в секунду = 300 * 360 / 60 градусов за кадр
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(300 * 360 / 60 / 60), 0)
-            end
-        end)
-    else
-        safeDisconnect(spinConnection)
     end
 end
 
@@ -1207,11 +1141,48 @@ local function startMainUpdate()
 end
 
 -- ========================================
+-- ===== SHERIFF DEAD NOTIF =====
+-- ========================================
+
+local function setupSheriffDeadNotif()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            player.CharacterRemoving:Connect(function(character)
+                if checkGun(player) then
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "⚠️ SHERIFF",
+                        Text = player.Name .. " is dead!",
+                        Duration = 3
+                    })
+                end
+            end)
+        end
+    end
+    
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Died:Connect(function()
+                    if checkGun(player) then
+                        StarterGui:SetCore("SendNotification", {
+                            Title = "⚠️ SHERIFF",
+                            Text = player.Name .. " is dead!",
+                            Duration = 3
+                        })
+                    end
+                end)
+            end
+        end)
+    end)
+end
+
+-- ========================================
 -- ===== RAGE TAB =====
 -- ========================================
 
 local RageTab = Window:Tab({ Title = "Rage", Icon = "sword" })
-local RageSection = RageTab:Section({ Title = "Rage Settings", Side = "Left" })
+local RageSection = RageTab:Section({ Title = "Rage", Side = "Left" })
 local RageSection2 = RageTab:Section({ Title = "Flight", Side = "Right" })
 
 -- FLY
@@ -1272,9 +1243,9 @@ RageSection:Toggle({
     end
 })
 
--- SPIN BOT 300/SEC
+-- SPIN BOT
 RageSection:Toggle({
-    Title = "Spin Bot (300/sec)",
+    Title = "Spin Bot",
     Default = false,
     Callback = function(value)
         Settings.SpinBotEnabled = value
@@ -1524,7 +1495,7 @@ VisualSection:Toggle({
 
 -- CHAMS
 VisualSection:Toggle({
-    Title = "Chams (Neon)",
+    Title = "Chams",
     Default = false,
     Callback = function(v) Settings.ChamsEnabled = v startMainUpdate() end
 })
@@ -1550,7 +1521,31 @@ VisualSection2:Toggle({
 VisualSection2:Toggle({
     Title = "Purple Trail",
     Default = false,
-    Callback = function(v) Settings.Trails = v startMainUpdate() end
+    Callback = function(v) 
+        Settings.Trails = v 
+        if v and LocalPlayer.Character then
+            createLocalPlayerTrail()
+        end
+        startMainUpdate()
+    end
+})
+
+VisualSection2:Toggle({
+    Title = "RGB Humanoid",
+    Default = false,
+    Callback = function(v)
+        Settings.RGBHumanoid = v
+        setupRGBHumanoid()
+    end
+})
+
+VisualSection2:Toggle({
+    Title = "Nimb",
+    Default = false,
+    Callback = function(v)
+        Settings.NimbEnabled = v
+        setupNimb()
+    end
 })
 
 VisualSection2:Toggle({
@@ -1663,44 +1658,24 @@ AntiAFKSection:Toggle({
 })
 
 -- ========================================
--- ===== AUTO JUMP BOMB TAB =====
+-- ===== AUTO FARM TAB =====
 -- ========================================
 
-local JumpBombTab = Window:Tab({ Title = "Auto Jump", Icon = "bomb" })
-local JumpBombSection = JumpBombTab:Section({ Title = "Auto Jump Bomb", Side = "Left" })
+local AutoFarmTab = Window:Tab({ Title = "Auto Farm", Icon = "star" })
+local AutoFarmSection = AutoFarmTab:Section({ Title = "Auto Farm Settings", Side = "Left" })
 
-JumpBombSection:Toggle({
-    Title = "Auto Jump Bomb",
+AutoFarmSection:Toggle({
+    Title = "Auto Farm",
     Default = false,
     Callback = function(v)
-        Settings.AutoJumpBombEnabled = v
-        setupAutoJumpBomb()
+        Settings.AutoFarmEnabled = v
     end
 })
 
-JumpBombSection:Label({
-    Title = "Controls",
-    Description = "Button: JUMP | Key: R",
+AutoFarmSection:Label({
+    Title = "Coming Soon",
+    Description = "Auto Farm features coming soon!",
     Icon = "info"
-})
-
--- ========================================
--- ===== GAMEPLAY TAB =====
--- ========================================
-
-local GameplayTab = Window:Tab({ Title = "Gameplay", Icon = "star" })
-local GameplaySection = GameplayTab:Section({ Title = "Gameplay Settings", Side = "Left" })
-
-GameplaySection:Toggle({
-    Title = "Kill Indicator",
-    Default = false,
-    Callback = function(v) Settings.KillIndicatorEnabled = v end
-})
-
-GameplaySection:Toggle({
-    Title = "Kill Sound",
-    Default = false,
-    Callback = function(v) Settings.KillSound = v end
 })
 
 -- ========================================
@@ -1750,9 +1725,15 @@ LocalPlayer.CharacterAdded:Connect(function()
     clearAllHighlights()
     clearAllChams()
     clearAllSkeletons()
+    setupRGBHumanoid()
+    setupNimb()
     
     if Settings.JumpCircles then
         setupJumpTracking()
+    end
+    
+    if Settings.Trails then
+        createLocalPlayerTrail()
     end
 end)
 
@@ -1764,6 +1745,5 @@ print("✅ PlantHub Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
     Text = "PlantHub | By MMV and MM2",
-    Duration = 5,
-    Icon = "rbxasset://textures/face.png"
+    Duration = 5
 })
