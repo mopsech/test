@@ -1,21 +1,17 @@
 -- ========================================
--- ===== PLANT HUB v3.0 ULTIMATE+ =====
+-- ===== PLANT HUB v2.3 (FIXED + UPDATED) =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
-if not WindUI then
-    game.StarterGui:SetCore("SendNotification", {Title = "Error", Text = "WindUI not loaded!", Duration = 5})
-    return
-end
 
 WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
 
 local Window = WindUI:CreateWindow({
     Title = "PlanetHub",
-    Author = "MMV & MM2",
+    Author = "MMV and MM2",
     Icon = "crown",
-    Folder = "PlanetHubSettings",
+    Folder = "PlantHubSettings",
     Size = UDim2.fromOffset(720, 600),
     Resizable = true,
     Transparent = true,
@@ -35,9 +31,11 @@ local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
+local InsertService = game:GetService("InsertService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
 -- ========================================
 -- ===== НАСТРОЙКИ =====
@@ -51,11 +49,22 @@ local Settings = {
     ChamsEnabled = false,
     JumpCircles = false,
     Trails = false,
+    FogEnabled = false,
+    ParticlesEnabled = false,
     RGBHumanoid = false,
+    NimbEnabled = false,
     XRayEnabled = false,
+    WingsEnabled = false,
+    ParticleCount = 100,
+    ParticleRange = 50,
+    BloomEnabled = false,
+    ColorCorrectionEnabled = false,
+    VignetteEnabled = false,
+    CustomSkyId = "",
     CrosshairEnabled = false,
     FlyEnabled = false,
     FlySpeed = 100,
+    MaxFlySpeed = 1000,
     BHopEnabled = false,
     BHopSpeed = 50,
     SpinBotEnabled = false,
@@ -71,10 +80,6 @@ local Settings = {
     AutoFarmCoinDelay = 0.15,
     AutoRespawn = false,
     TracersEnabled = false,
-    BloomEnabled = false,
-    ColorCorrectionEnabled = false,
-    VignetteEnabled = false,
-    CustomSkyId = "",
     AimFOVEnabled = false,
     AimFOVRadius = 65,
 }
@@ -91,12 +96,18 @@ local Cache = {
     Connections = {},
     ChamsParts = {},
     ChamsPartsList = {},
+    Particles = {},
     PostEffects = {},
     JumpTracking = {},
     RGBConnection = nil,
+    NimbConnection = nil,
+    NimbPart = nil,
     AutoFarmConnection = nil,
     CurrentTween = nil,
     XRayParts = {},
+    WingsPart = nil,
+    WingsConnection = nil,
+    WingsParticles = {},
     Tracers = {},
     TrailAttachments = {},
     FOVCircle = nil,
@@ -109,6 +120,51 @@ local COLORS = {
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
 }
+
+-- ========================================
+-- ===== SKY PRESETS =====
+-- ========================================
+
+local SkyPresets = {
+    ["Добрый хомяк"] = {
+        Bk = "rbxassetid://135457808082953",
+        Dn = "rbxassetid://135457808082953",
+        Ft = "rbxassetid://135457808082953",
+        Lf = "rbxassetid://135457808082953",
+        Rt = "rbxassetid://135457808082953",
+        Up = "rbxassetid://135457808082953",
+    },
+    ["Ночные тучи"] = {
+        Bk = "rbxassetid://100140210065251",
+        Dn = "rbxassetid://100140210065251",
+        Ft = "rbxassetid://100140210065251",
+        Lf = "rbxassetid://100140210065251",
+        Rt = "rbxassetid://100140210065251",
+        Up = "rbxassetid://100140210065251",
+    },
+    ["Космос"] = {
+        Bk = "rbxassetid://97059048850342",
+        Dn = "rbxassetid://97059048850342",
+        Ft = "rbxassetid://97059048850342",
+        Lf = "rbxassetid://97059048850342",
+        Rt = "rbxassetid://97059048850342",
+        Up = "rbxassetid://97059048850342",
+    },
+}
+
+local function applySkyPreset(preset)
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    sky.SkyboxBk = preset.Bk
+    sky.SkyboxDn = preset.Dn
+    sky.SkyboxFt = preset.Ft
+    sky.SkyboxLf = preset.Lf
+    sky.SkyboxRt = preset.Rt
+    sky.SkyboxUp = preset.Up
+end
 
 -- ========================================
 -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
@@ -170,7 +226,7 @@ local function getRoleColor(player)
 end
 
 -- ========================================
--- ===== ESP =====
+-- ===== HIGHLIGHT ESP =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
@@ -206,7 +262,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS =====
+-- ===== CHAMS (FIXED: Through Walls) =====
 -- ========================================
 
 local function cacheCharacterParts(player)
@@ -238,7 +294,7 @@ local function applyChams(player)
             part.Material = Enum.Material.ForceField
             part.Color = COLORS.Purple
             part.Transparency = 0.15
-            part.LocalTransparencyModifier = 0
+            part.LocalTransparencyModifier = 0 -- ЧЕРЕЗ СТЕНЫ
         end
     end
 end
@@ -275,6 +331,7 @@ local function clearAllChams()
         end
     end
     Cache.ChamsPartsList = {}
+    Cache.ChamsParts = {}
 end
 
 local function reapplyAllChams()
@@ -288,7 +345,7 @@ local function reapplyAllChams()
 end
 
 -- ========================================
--- ===== SKELETON =====
+-- ===== SKELETON ESP =====
 -- ========================================
 
 local SKELETON_BONES = {
@@ -412,7 +469,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== TRACERS =====
+-- ===== TRACERS (FIXED: Body) =====
 -- ========================================
 
 local function createTracer(player)
@@ -436,7 +493,7 @@ local function updateTracers()
             continue
         end
 
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart") -- ТЕЛО
         if not hrp then
             line.Visible = false
             continue
@@ -461,6 +518,154 @@ local function clearAllTracers()
         pcall(function() line:Remove() end)
     end
     Cache.Tracers = {}
+end
+
+-- ========================================
+-- ===== FOV AIM (С ПРЕДИКТОМ) =====
+-- ========================================
+
+local function createFOVCircle()
+    if Cache.FOVCircle then
+        Cache.FOVCircle:Remove()
+        Cache.FOVCircle = nil
+    end
+
+    if not Settings.AimFOVEnabled then return end
+
+    local circle = Drawing.new("Circle")
+    circle.Radius = Settings.AimFOVRadius
+    circle.Thickness = 2
+    circle.Color = Color3.fromRGB(255, 255, 255)
+    circle.Transparency = 0.5
+    circle.NumSides = 32
+    circle.Filled = false
+    circle.Visible = true
+    circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    Cache.FOVCircle = circle
+end
+
+local function updateFOVCircle()
+    if Cache.FOVCircle then
+        Cache.FOVCircle.Radius = Settings.AimFOVRadius
+        Cache.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    end
+end
+
+local function updateAim()
+    if not Settings.AimFOVEnabled then
+        if Cache.FOVCircle then
+            Cache.FOVCircle:Remove()
+            Cache.FOVCircle = nil
+        end
+        return
+    end
+
+    if not Cache.FOVCircle then
+        createFOVCircle()
+    end
+
+    local hasGun = checkGun(LocalPlayer)
+    if not hasGun then return end
+
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local closestMurder = nil
+    local closestDist = Settings.AimFOVRadius
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer or not player.Character then continue end
+        local role = getRole(player)
+        if role ~= "Murder" then continue end
+
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen or screenPos.Z < 0 then continue end
+
+        local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+        local dist = (center - screenVec).Magnitude
+
+        if dist < closestDist then
+            local velocity = hrp.AssemblyLinearVelocity
+            local predictedPos = hrp.Position + (velocity * 0.5)
+
+            local predScreen, predOnScreen = Camera:WorldToScreenPoint(predictedPos)
+            if predOnScreen and predScreen.Z > 0 then
+                local predVec = Vector2.new(predScreen.X, predScreen.Y)
+                local predDist = (center - predVec).Magnitude
+                if predDist < closestDist then
+                    closestDist = predDist
+                    closestMurder = {player = player, predictedPos = predictedPos}
+                end
+            end
+        end
+    end
+
+    if closestMurder then
+        local targetPos = closestMurder.predictedPos
+        local currentCamPos = Camera.CFrame.Position
+        local lookVector = (targetPos - currentCamPos).Unit
+        local targetCFrame = CFrame.lookAt(currentCamPos, currentCamPos + lookVector)
+        Camera.CFrame = targetCFrame
+    end
+end
+
+-- ========================================
+-- ===== KILL ALL =====
+-- ========================================
+
+local function killAllPlayers()
+    local knife = nil
+    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+            knife = item
+            break
+        end
+    end
+    if not knife then
+        StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "❌ Нож не найден!", Duration = 2})
+        return
+    end
+
+    LocalPlayer.Character.Humanoid:EquipTool(knife)
+    local targets = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(targets, player)
+        end
+    end
+
+    if #targets == 0 then
+        StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "❌ Нет игроков!", Duration = 2})
+        return
+    end
+
+    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    for _, target in ipairs(targets) do
+        if not target.Character then continue end
+        local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHrp then continue end
+
+        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 2)
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        task.wait(0.1)
+
+        if target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 then
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        end
+        task.wait(0.3)
+    end
+    StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "✅ Все убиты!", Duration = 2})
 end
 
 -- ========================================
@@ -649,100 +854,6 @@ local function createCrosshair()
 end
 
 -- ========================================
--- ===== FOV AIM (С ПРЕДИКТОМ) =====
--- ========================================
-
-local function createFOVCircle()
-    if Cache.FOVCircle then
-        Cache.FOVCircle:Remove()
-        Cache.FOVCircle = nil
-    end
-
-    if not Settings.AimFOVEnabled then return end
-
-    local circle = Drawing.new("Circle")
-    circle.Radius = Settings.AimFOVRadius
-    circle.Thickness = 2
-    circle.Color = Color3.fromRGB(255, 255, 255)
-    circle.Transparency = 0.5
-    circle.NumSides = 32
-    circle.Filled = false
-    circle.Visible = true
-    circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
-    Cache.FOVCircle = circle
-end
-
-local function updateFOVCircle()
-    if Cache.FOVCircle then
-        Cache.FOVCircle.Radius = Settings.AimFOVRadius
-        Cache.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    end
-end
-
-local function updateAim()
-    if not Settings.AimFOVEnabled then
-        if Cache.FOVCircle then
-            Cache.FOVCircle:Remove()
-            Cache.FOVCircle = nil
-        end
-        return
-    end
-
-    if not Cache.FOVCircle then
-        createFOVCircle()
-    end
-
-    local hasGun = checkGun(LocalPlayer)
-    if not hasGun then return end
-
-    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return end
-
-    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local closestMurder = nil
-    local closestDist = Settings.AimFOVRadius
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not player.Character then continue end
-        local role = getRole(player)
-        if role ~= "Murder" then continue end
-
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then continue end
-
-        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or screenPos.Z < 0 then continue end
-
-        local screenVec = Vector2.new(screenPos.X, screenPos.Y)
-        local dist = (center - screenVec).Magnitude
-
-        if dist < closestDist then
-            local velocity = hrp.AssemblyLinearVelocity
-            local predictedPos = hrp.Position + (velocity * 0.5)
-
-            local predScreen, predOnScreen = Camera:WorldToScreenPoint(predictedPos)
-            if predOnScreen and predScreen.Z > 0 then
-                local predVec = Vector2.new(predScreen.X, predScreen.Y)
-                local predDist = (center - predVec).Magnitude
-                if predDist < closestDist then
-                    closestDist = predDist
-                    closestMurder = {player = player, predictedPos = predictedPos}
-                end
-            end
-        end
-    end
-
-    if closestMurder then
-        local targetPos = closestMurder.predictedPos
-        local currentCamPos = Camera.CFrame.Position
-        local lookVector = (targetPos - currentCamPos).Unit
-        local targetCFrame = CFrame.lookAt(currentCamPos, currentCamPos + lookVector)
-        Camera.CFrame = targetCFrame
-    end
-end
-
--- ========================================
 -- ===== RGB HUMANOID =====
 -- ========================================
 
@@ -825,49 +936,24 @@ local function setupVignette(enabled)
     end
 end
 
--- ========================================
--- ===== SKY PRESETS =====
--- ========================================
-
-local SkyPresets = {
-    ["Добрый хомяк"] = {
-        Bk = "rbxassetid://135457808082953",
-        Dn = "rbxassetid://135457808082953",
-        Ft = "rbxassetid://135457808082953",
-        Lf = "rbxassetid://135457808082953",
-        Rt = "rbxassetid://135457808082953",
-        Up = "rbxassetid://135457808082953",
-    },
-    ["Ночные тучи"] = {
-        Bk = "rbxassetid://100140210065251",
-        Dn = "rbxassetid://100140210065251",
-        Ft = "rbxassetid://100140210065251",
-        Lf = "rbxassetid://100140210065251",
-        Rt = "rbxassetid://100140210065251",
-        Up = "rbxassetid://100140210065251",
-    },
-    ["Космос"] = {
-        Bk = "rbxassetid://97059048850342",
-        Dn = "rbxassetid://97059048850342",
-        Ft = "rbxassetid://97059048850342",
-        Lf = "rbxassetid://97059048850342",
-        Rt = "rbxassetid://97059048850342",
-        Up = "rbxassetid://97059048850342",
-    },
-}
-
-local function applySkyPreset(preset)
+local function setupSky(skyId)
+    if skyId == "" then return end
     local sky = Lighting:FindFirstChildOfClass("Sky")
     if not sky then
         sky = Instance.new("Sky")
         sky.Parent = Lighting
     end
-    sky.SkyboxBk = preset.Bk
-    sky.SkyboxDn = preset.Dn
-    sky.SkyboxFt = preset.Ft
-    sky.SkyboxLf = preset.Lf
-    sky.SkyboxRt = preset.Rt
-    sky.SkyboxUp = preset.Up
+    if not skyId:find("rbxassetid://") then
+        skyId = "rbxassetid://" .. skyId
+    end
+    pcall(function()
+        sky.SkyboxBk = skyId
+        sky.SkyboxDn = skyId
+        sky.SkyboxFt = skyId
+        sky.SkyboxLf = skyId
+        sky.SkyboxRt = skyId
+        sky.SkyboxUp = skyId
+    end)
 end
 
 -- ========================================
@@ -920,7 +1006,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM =====
+-- ===== AUTO FARM + AUTO RESPAWN =====
 -- ========================================
 
 local function getCoinBag()
@@ -1388,6 +1474,43 @@ local function setupWallThought()
 end
 
 -- ========================================
+-- ===== SHERIFF DEAD NOTIF =====
+-- ========================================
+
+local function setupSheriffDeadNotif()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            player.CharacterRemoving:Connect(function(character)
+                if checkGun(player) then
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "⚠️ SHERIFF",
+                        Text = player.Name .. " is dead!",
+                        Duration = 3
+                    })
+                end
+            end)
+        end
+    end
+
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Died:Connect(function()
+                    if checkGun(player) then
+                        StarterGui:SetCore("SendNotification", {
+                            Title = "⚠️ SHERIFF",
+                            Text = player.Name .. " is dead!",
+                            Duration = 3
+                        })
+                    end
+                end)
+            end
+        end)
+    end)
+end
+
+-- ========================================
 -- ===== MAIN UPDATE =====
 -- ========================================
 
@@ -1447,67 +1570,30 @@ local function updateVisuals()
     else
         removeLocalPlayerTrail()
     end
-
-    if Settings.SkeletonESP then
-        updateAllSkeletons()
-    end
-
-    if Settings.JumpCircles then
-        updateJumpCircles()
-    end
-
-    if Settings.AimFOVEnabled then
-        updateAim()
-        updateFOVCircle()
-    else
-        if Cache.FOVCircle then
-            Cache.FOVCircle:Remove()
-            Cache.FOVCircle = nil
-        end
-    end
 end
 
 local function startMainUpdate()
     safeDisconnect(mainUpdateConnection)
     mainUpdateConnection = RunService.Heartbeat:Connect(function()
         updateVisuals()
-    end)
-end
-
--- ========================================
--- ===== SHERIFF DEAD NOTIF =====
--- ========================================
-
-local function setupSheriffDeadNotif()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            player.CharacterRemoving:Connect(function(character)
-                if checkGun(player) then
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "⚠️ SHERIFF",
-                        Text = player.Name .. " is dead!",
-                        Duration = 3
-                    })
-                end
-            end)
+        
+        if Settings.SkeletonESP then
+            updateAllSkeletons()
         end
-    end
-
-    Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(character)
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.Died:Connect(function()
-                    if checkGun(player) then
-                        StarterGui:SetCore("SendNotification", {
-                            Title = "⚠️ SHERIFF",
-                            Text = player.Name .. " is dead!",
-                            Duration = 3
-                        })
-                    end
-                end)
+        
+        if Settings.JumpCircles then
+            updateJumpCircles()
+        end
+        
+        if Settings.AimFOVEnabled then
+            updateAim()
+            updateFOVCircle()
+        else
+            if Cache.FOVCircle then
+                Cache.FOVCircle:Remove()
+                Cache.FOVCircle = nil
             end
-        end)
+        end
     end)
 end
 
@@ -1515,6 +1601,7 @@ end
 -- ===== UI TABS =====
 -- ========================================
 
+-- RAGE TAB
 local RageTab = Window:Tab({ Title = "Rage", Icon = "sword" })
 local RageSection = RageTab:Section({ Title = "Rage", Side = "Left" })
 local RageSection2 = RageTab:Section({ Title = "Flight", Side = "Right" })
@@ -1585,7 +1672,7 @@ RageSection:Input({
     end
 })
 
--- ===== COMBAT TAB =====
+-- COMBAT TAB
 local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
 local CombatSection = CombatTab:Section({ Title = "Combat", Side = "Left" })
 local CombatSection2 = CombatTab:Section({ Title = "Aim", Side = "Right" })
@@ -1674,53 +1761,7 @@ CombatSection:Button({
 CombatSection:Button({
     Title = "🔪 Kill All",
     Callback = function()
-        local knife = nil
-        for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
-                knife = item
-                break
-            end
-        end
-        if not knife then
-            StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "❌ Нож не найден!", Duration = 2})
-            return
-        end
-
-        LocalPlayer.Character.Humanoid:EquipTool(knife)
-        local targets = {}
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                table.insert(targets, player)
-            end
-        end
-
-        if #targets == 0 then
-            StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "❌ Нет игроков!", Duration = 2})
-            return
-        end
-
-        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-
-        for _, target in ipairs(targets) do
-            if not target.Character then continue end
-            local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
-            if not targetHrp then continue end
-
-            hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 2)
-            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
-            task.wait(0.1)
-
-            if target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 then
-                VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
-            end
-            task.wait(0.3)
-        end
-        StarterGui:SetCore("SendNotification", {Title = "Kill All", Text = "✅ Все убиты!", Duration = 2})
+        killAllPlayers()
     end
 })
 
@@ -1779,7 +1820,7 @@ CombatSection2:Input({
     end
 })
 
--- ===== VISUAL TAB =====
+-- VISUAL TAB
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
 local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
@@ -1808,7 +1849,9 @@ VisualSection:Toggle({
     Callback = function(v)
         Settings.ChamsEnabled = v
         if v then
-            reapplyAllChams()
+            for _, player in ipairs(Players:GetPlayers()) do
+                cacheCharacterParts(player)
+            end
         else
             clearAllChams()
         end
@@ -1861,14 +1904,12 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Purple Trail (Persistent)",
+    Title = "Purple Trail",
     Default = false,
     Callback = function(v)
         Settings.Trails = v
-        if v then
+        if v and LocalPlayer.Character then
             createLocalPlayerTrail()
-        else
-            removeLocalPlayerTrail()
         end
         startMainUpdate()
     end
@@ -1911,7 +1952,7 @@ VisualSection2:Toggle({
     end
 })
 
--- ===== SHADERS TAB =====
+-- SHADERS TAB
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
 local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
 
@@ -1942,7 +1983,7 @@ ShadersSection:Toggle({
     end
 })
 
--- ===== SKY TAB =====
+-- SKY TAB
 local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
 local SkySection = SkyTab:Section({ Title = "Sky Presets", Side = "Left" })
 local SkySection2 = SkyTab:Section({ Title = "Custom Sky", Side = "Right" })
@@ -2004,7 +2045,7 @@ SkySection2:Button({
     end
 })
 
--- ===== AUTO FARM TAB =====
+-- AUTO FARM TAB
 local AutoFarmTab = Window:Tab({ Title = "Auto Farm", Icon = "star" })
 local AutoFarmSection = AutoFarmTab:Section({ Title = "Farm Settings", Side = "Left" })
 local AutoFarmSection2 = AutoFarmTab:Section({ Title = "Config", Side = "Right" })
@@ -2056,7 +2097,7 @@ AutoFarmSection2:Input({
     end
 })
 
--- ===== ANTI-AFK TAB =====
+-- ANTI-AFK TAB
 local AntiAFKTab = Window:Tab({ Title = "Anti-AFK", Icon = "timer" })
 local AntiAFKSection = AntiAFKTab:Section({ Title = "AFK Protection", Side = "Left" })
 
@@ -2069,13 +2110,14 @@ AntiAFKSection:Toggle({
     end
 })
 
--- ===== PROFILE TAB =====
+-- PROFILE TAB
 local ProfileTab = Window:Tab({ Title = "Profile", Icon = "user" })
 local ProfileSection = ProfileTab:Section({ Title = "Player Info", Side = "Left" })
 
 local function updatePlayerInfo()
     pcall(function()
         ProfileSection:Clear()
+
         local username = LocalPlayer.Name
         local userId = LocalPlayer.UserId
         local character = LocalPlayer.Character
@@ -2088,6 +2130,7 @@ local function updatePlayerInfo()
             Description = "ID: " .. userId,
             Icon = "user"
         })
+
         ProfileSection:Label({
             Title = "Health: " .. math.floor(health) .. "/" .. maxHealth,
             Description = "Status: " .. (health > 0 and "✅ Alive" or "❌ Dead"),
@@ -2110,12 +2153,12 @@ end)
 
 updatePlayerInfo()
 
--- ===== SETTINGS TAB =====
+-- SETTINGS TAB
 local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlanetHub v3.0 ULTIMATE+",
+    Title = "PlanetHub v2.3 FIXED",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -2145,23 +2188,12 @@ Players.PlayerAdded:Connect(function(player)
         end
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
-            applyChams(player)
         end
         if Settings.JumpCircles then
             Cache.JumpTracking[player.UserId] = {wasJumping = false}
         end
         if Settings.TracersEnabled and player ~= LocalPlayer then
             createTracer(player)
-        end
-        if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
-            local role = getRole(player)
-            if Settings.MurderESP and role == "Murder" then
-                createOrUpdateHighlight(player, COLORS.Murder)
-            elseif Settings.SheriffESP and role == "Sheriff" then
-                createOrUpdateHighlight(player, COLORS.Sheriff)
-            elseif Settings.InnocentESP and role == "Innocent" then
-                createOrUpdateHighlight(player, COLORS.Innocent)
-            end
         end
     end)
 end)
@@ -2244,9 +2276,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlanetHub v3.0 ULTIMATE+ Loaded!")
+print("✅ PlanetHub v2.3 FIXED Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v3.0 | All features fixed!",
+    Text = "PlanetHub v2.3 FIXED | All features working!",
     Duration = 5
 })
