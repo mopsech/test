@@ -77,13 +77,21 @@ local Settings = {
     BHopEnabled = false,
     SpinBotEnabled = false,
     SpinSpeed = 5,
-    SilentAimEnabled = false,
     
     -- Combat
     NoclipEnabled = false,
     AntiFlingEnabled = false,
     FOVChanger = 70,
-    FlingEnabled = false
+    FlingEnabled = false,
+    WallThoughtEnabled = false,
+    WallThoughtRadius = 50,
+    SilentAimEnabled = false,
+    SilentAimRadius = 150,
+    AimbotEnabled = false,
+    AimbotRadius = 150,
+    
+    -- Anti-AFK
+    AntiAFKEnabled = false
 }
 
 -- ========================================
@@ -98,7 +106,8 @@ local Cache = {
     ChamsParts = {},
     Particles = {},
     PostEffects = {},
-    JumpTracking = {}
+    JumpTracking = {},
+    BoneLines = {}
 }
 
 local COLORS = {
@@ -273,16 +282,24 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== SKELETON ESP =====
+-- ===== SKELETON ESP (ПАЛОЧКИ) =====
 -- ========================================
 
 local SKELETON_BONES = {
     {"Head", "UpperTorso"},
-    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"},
-    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"},
+    {"UpperTorso", "LeftUpperArm"}, 
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, 
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
     {"UpperTorso", "LowerTorso"},
-    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LowerTorso", "RightUpperLeg"} , {"RightUpperLeg", "RightLowerLeg"},
+    {"LowerTorso", "LeftUpperLeg"}, 
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"},
 }
 
 local function createSkeletonForPlayer(player)
@@ -294,7 +311,7 @@ local function createSkeletonForPlayer(player)
     bones = {}
     for _, bonePair in ipairs(SKELETON_BONES) do
         local line = Drawing.new("Line")
-        line.Thickness = 1.5
+        line.Thickness = 2
         line.Transparency = 0.8
         line.Visible = false
         table.insert(bones, {pair = bonePair, line = line})
@@ -355,7 +372,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== PERFECT JUMP CIRCLES =====
+-- ===== JUMP CIRCLES (НА СТОПАХ) =====
 -- ========================================
 
 local jumpTracking = {}
@@ -363,7 +380,6 @@ local jumpTracking = {}
 local function createJumpCircleAtPosition(position)
     if not Settings.JumpCircles then return end
     
-    -- Создаём Part в виде кольца
     local ring = Instance.new("Part")
     ring.Shape = Enum.PartType.Cylinder
     ring.Size = Vector3.new(0.05, 0.5, 0.5)
@@ -375,7 +391,6 @@ local function createJumpCircleAtPosition(position)
     ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
     ring.Parent = workspace
     
-    -- Light для свечения
     local light = Instance.new("PointLight")
     light.Brightness = 5
     light.Color = COLORS.Purple
@@ -401,14 +416,10 @@ local function createJumpCircleAtPosition(position)
             return
         end
         
-        -- Увеличиваем размер кольца
         local scale = 0.5 + (progress * 4.5)
         ring.Size = Vector3.new(0.05, scale, scale)
-        
-        -- Плавное исчезновение
         ring.Transparency = progress
         light.Brightness = 5 * (1 - progress)
-        
         ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
     end)
 end
@@ -417,19 +428,11 @@ local function setupJumpTracking()
     for _, player in ipairs(Players:GetPlayers()) do
         if not jumpTracking[player.UserId] then
             if player.Character then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    jumpTracking[player.UserId] = {
-                        wasJumping = false,
-                        lastJumpPos = player.Character:FindFirstChild("HumanoidRootPart").Position
-                    }
-                end
+                jumpTracking[player.UserId] = {wasJumping = false}
             end
         end
     end
 end
-
-local jumpCircleUpdateConnection = nil
 
 local function updateJumpCircles()
     if not Settings.JumpCircles then return end
@@ -438,35 +441,34 @@ local function updateJumpCircles()
         if not player or not player.Character then continue end
         
         local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        local leftFoot = player.Character:FindFirstChild("LeftFoot")
+        local rightFoot = player.Character:FindFirstChild("RightFoot")
         
-        if humanoid and hrp then
+        if humanoid and (leftFoot or rightFoot) then
             local tracking = jumpTracking[player.UserId]
             if not tracking then
-                tracking = {wasJumping = false, lastJumpPos = hrp.Position}
+                tracking = {wasJumping = false}
                 jumpTracking[player.UserId] = tracking
             end
             
             local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
             
-            -- Обнаруживаем момент начала прыжка
             if isJumping and not tracking.wasJumping then
-                createJumpCircleAtPosition(tracking.lastJumpPos)
+                if leftFoot then
+                    createJumpCircleAtPosition(leftFoot.Position)
+                end
+                if rightFoot then
+                    createJumpCircleAtPosition(rightFoot.Position)
+                end
             end
             
             tracking.wasJumping = isJumping
-            
-            -- Обновляем позицию когда игрок на земле
-            if humanoid:GetState() == Enum.HumanoidStateType.Landed or
-               humanoid:GetState() == Enum.HumanoidStateType.Running then
-                tracking.lastJumpPos = hrp.Position
-            end
         end
     end
 end
 
 -- ========================================
--- ===== TRAILS (ЛОКАЛЬНЫЙ ИГРОК) =====
+-- ===== TRAILS =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -507,7 +509,7 @@ local function createLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== СИСТЕМА ЧАСТИЦ (ОПТИМИЗИРОВАННАЯ) =====
+-- ===== СИСТЕМА ЧАСТИЦ =====
 -- ========================================
 
 local particleSpawnConnection = nil
@@ -717,7 +719,128 @@ local function createCrosshair()
 end
 
 -- ========================================
--- ===== РАБОЧИЙ FLING =====
+-- ===== WALL THOUGHT (KILL THROUGH WALL) =====
+-- ========================================
+
+local wallThoughtConnection = nil
+
+local function setupWallThought()
+    if Settings.WallThoughtEnabled then
+        wallThoughtConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.WallThoughtEnabled or not LocalPlayer.Character then return end
+            
+            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return end
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player == LocalPlayer or not player.Character then continue end
+                
+                local theirHRP = player.Character:FindFirstChild("HumanoidRootPart")
+                local theirHumanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                
+                if not theirHRP or not theirHumanoid then continue end
+                
+                local dist = (myHRP.Position - theirHRP.Position).Magnitude
+                if dist <= Settings.WallThoughtRadius then
+                    theirHumanoid.Health = 0
+                end
+            end
+        end)
+    else
+        safeDisconnect(wallThoughtConnection)
+    end
+end
+
+-- ========================================
+-- ===== AIMBOT (ОТДЕЛЬНО) =====
+-- ========================================
+
+local aimbotConnection = nil
+
+local function setupAimbot()
+    if Settings.AimbotEnabled then
+        aimbotConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.AimbotEnabled or not LocalPlayer.Character then return end
+            
+            local closestPlayer = nil
+            local closestDistance = Settings.AimbotRadius
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player == LocalPlayer or not player.Character then continue end
+                
+                -- Только на Murder
+                if not checkKnife(player) then continue end
+                
+                local targetPos = player.Character:FindFirstChild("Head")
+                if not targetPos then continue end
+                
+                local screenPos, onScreen = Camera:WorldToScreenPoint(targetPos.Position)
+                if onScreen then
+                    local distance = (screenPos - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+                    
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+            
+            if closestPlayer and closestPlayer.Character then
+                local targetHead = closestPlayer.Character:FindFirstChild("Head")
+                if targetHead then
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+                end
+            end
+        end)
+    else
+        safeDisconnect(aimbotConnection)
+    end
+end
+
+-- ========================================
+-- ===== ANTI-AFK =====
+-- ========================================
+
+local afkConnection = nil
+local afkKeys = {Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D}
+local afkKeyIndex = 1
+
+local function setupAntiAFK()
+    if Settings.AntiAFKEnabled then
+        afkConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.AntiAFKEnabled or not LocalPlayer.Character then return end
+            
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                -- Имитация движения
+                if math.random(1, 100) < 30 then
+                    humanoid.Jump = true
+                end
+            end
+        end)
+    else
+        safeDisconnect(afkConnection)
+    end
+end
+
+-- ========================================
+-- ===== FLING ПО РОЛЯМ =====
+-- ========================================
+
+local function flingPlayer(player)
+    if not player or not player.Character then return end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    hrp.AssemblyLinearVelocity = Vector3.new(
+        math.random(-999, 999),
+        math.random(500, 999),
+        math.random(-999, 999)
+    )
+end
+
+-- ========================================
+-- ===== FLING (РАБОЧИЙ) =====
 -- ========================================
 
 local flingConnection = nil
@@ -738,10 +861,8 @@ local function startFling()
                 return
             end
             
-            -- Простой и эффективный флинг
             hrp.Velocity = hrp.CFrame.LookVector * 100 + Vector3.new(0, 100, 0)
             hrp.RotVelocity = Vector3.new(500, 500, 500)
-            
             humanoid.Jump = true
         end)
     else
@@ -750,7 +871,7 @@ local function startFling()
 end
 
 -- ========================================
--- ===== ANTI FLING (УБИРАЕТ КОЛЛИЗИИ) =====
+-- ===== ANTI FLING =====
 -- ========================================
 
 local antiFlingConnection = nil
@@ -763,7 +884,6 @@ local function setupAntiFling()
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
             
-            -- Убираем коллизии с игроками
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer and player.Character then
                     local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
@@ -773,7 +893,6 @@ local function setupAntiFling()
                 end
             end
             
-            -- Стоп флинг
             if hrp.AssemblyLinearVelocity.Magnitude > 150 then
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end
@@ -784,7 +903,6 @@ local function setupAntiFling()
     else
         safeDisconnect(antiFlingConnection)
         
-        -- Возвращаем коллизии
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character then
                 local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
@@ -815,7 +933,6 @@ local function updateVisuals()
             
             local role = getRole(player)
             
-            -- ESP
             if Settings.MurderESP and role == "Murder" then
                 createOrUpdateHighlight(player, COLORS.Murder)
             elseif Settings.SheriffESP and role == "Sheriff" then
@@ -826,14 +943,12 @@ local function updateVisuals()
                 removeHighlight(player)
             end
             
-            -- Chams
             if Settings.ChamsEnabled then
                 applyChams(player)
             else
                 removeChams(player)
             end
             
-            -- Skeleton
             if Settings.SkeletonESP then
                 if not Cache.Bones[player.UserId] then
                     createSkeletonForPlayer(player)
@@ -870,18 +985,15 @@ local function startMainUpdate()
             updateVisuals()
         end
         
-        -- Jump circles update
         if Settings.JumpCircles then
             updateJumpCircles()
         end
         
-        -- Particles update
         if Settings.ParticlesEnabled then
             updateParticles()
         end
     end)
     
-    -- Particle spawn
     if particleSpawnConnection then safeDisconnect(particleSpawnConnection) end
     
     if Settings.ParticlesEnabled then
@@ -1007,7 +1119,7 @@ RageSection:Toggle({
     end
 })
 
--- FLING (РАБОЧИЙ)
+-- FLING
 RageSection:Toggle({
     Title = "Super Fling",
     Default = false,
@@ -1023,6 +1135,7 @@ RageSection:Toggle({
 
 local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
 local CombatSection = CombatTab:Section({ Title = "Combat", Side = "Left" })
+local CombatSection2 = CombatTab:Section({ Title = "Advanced", Side = "Right" })
 
 -- NOCLIP
 local noclipConn = nil
@@ -1045,7 +1158,7 @@ CombatSection:Toggle({
     end
 })
 
--- ANTI FLING (УБИРАЕТ КОЛЛИЗИИ)
+-- ANTI FLING
 CombatSection:Toggle({
     Title = "Anti Fling",
     Default = false,
@@ -1080,12 +1193,104 @@ CombatSection:Button({
     end
 })
 
+-- WALL THOUGHT
+CombatSection2:Toggle({
+    Title = "Kill Through Wall",
+    Default = false,
+    Callback = function(value)
+        Settings.WallThoughtEnabled = value
+        setupWallThought()
+    end
+})
+
+CombatSection2:Input({
+    Title = "Wall Radius",
+    Default = "50",
+    Placeholder = "50",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then Settings.WallThoughtRadius = num end
+    end
+})
+
+-- AIMBOT
+CombatSection2:Toggle({
+    Title = "Aimbot (Murder)",
+    Default = false,
+    Callback = function(value)
+        Settings.AimbotEnabled = value
+        setupAimbot()
+    end
+})
+
+CombatSection2:Input({
+    Title = "Aimbot Radius",
+    Default = "150",
+    Placeholder = "150",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then Settings.AimbotRadius = num end
+    end
+})
+
+-- ========================================
+-- ===== FLING TAB =====
+-- ========================================
+
+local FlingTab = Window:Tab({ Title = "Fling", Icon = "rocket" })
+local FlingSection = FlingTab:Section({ Title = "Fling Settings", Side = "Left" })
+
+FlingSection:Button({
+    Title = "Fling Murder",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and checkKnife(player) then
+                flingPlayer(player)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Fling",
+                    Text = "Murder flinged: " .. player.Name,
+                    Duration = 2
+                })
+            end
+        end
+    end
+})
+
+FlingSection:Button({
+    Title = "Fling Sheriff",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and checkGun(player) then
+                flingPlayer(player)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Fling",
+                    Text = "Sheriff flinged: " .. player.Name,
+                    Duration = 2
+                })
+            end
+        end
+    end
+})
+
+FlingSection:Button({
+    Title = "Fling All",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                flingPlayer(player)
+            end
+        end
+        StarterGui:SetCore("SendNotification", {Title = "Fling", Text = "All flinged!", Duration = 2})
+    end
+})
+
 -- ========================================
 -- ===== VISUAL TAB =====
 -- ========================================
 
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
+local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
 
 -- ESP
 VisualSection:Toggle({
@@ -1121,7 +1326,7 @@ VisualSection:Toggle({
 })
 
 -- EFFECTS
-VisualSection:Toggle({
+VisualSection2:Toggle({
     Title = "Jump Circles",
     Default = false,
     Callback = function(v) 
@@ -1131,13 +1336,13 @@ VisualSection:Toggle({
     end
 })
 
-VisualSection:Toggle({
+VisualSection2:Toggle({
     Title = "Purple Trail",
     Default = false,
     Callback = function(v) Settings.Trails = v startMainUpdate() end
 })
 
-VisualSection:Toggle({
+VisualSection2:Toggle({
     Title = "Crosshair",
     Default = false,
     Callback = function(v) 
@@ -1176,7 +1381,6 @@ ParticlesSection:Toggle({
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
 local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
 
--- BLOOM
 ShadersSection:Toggle({
     Title = "Bloom",
     Default = false,
@@ -1186,7 +1390,6 @@ ShadersSection:Toggle({
     end
 })
 
--- COLOR CORRECTION
 ShadersSection:Toggle({
     Title = "Color Correction",
     Default = false,
@@ -1196,7 +1399,6 @@ ShadersSection:Toggle({
     end
 })
 
--- VIGNETTE
 ShadersSection:Toggle({
     Title = "Vignette",
     Default = false,
@@ -1235,6 +1437,28 @@ SkySection:Button({
 })
 
 -- ========================================
+-- ===== ANTI-AFK TAB =====
+-- ========================================
+
+local AntiAFKTab = Window:Tab({ Title = "Anti-AFK", Icon = "timer" })
+local AntiAFKSection = AntiAFKTab:Section({ Title = "AFK Protection", Side = "Left" })
+
+AntiAFKSection:Toggle({
+    Title = "Anti-AFK",
+    Default = false,
+    Callback = function(v)
+        Settings.AntiAFKEnabled = v
+        setupAntiAFK()
+    end
+})
+
+AntiAFKSection:Label({
+    Title = "Anti-AFK Status",
+    Description = Settings.AntiAFKEnabled and "🟢 ACTIVE" or "🔴 INACTIVE",
+    Icon = "info"
+})
+
+-- ========================================
 -- ===== GAMEPLAY TAB =====
 -- ========================================
 
@@ -1261,8 +1485,8 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v7.0",
-    Description = "Final Edition",
+    Title = "Murder Hub v8.0",
+    Description = "Complete Edition",
     Icon = "crown"
 })
 
@@ -1290,7 +1514,7 @@ Players.PlayerAdded:Connect(function(player)
             createSkeletonForPlayer(player)
         end
         if Settings.JumpCircles then
-            jumpTracking[player.UserId] = {wasJumping = false, lastJumpPos = player.Character:FindFirstChild("HumanoidRootPart").Position}
+            jumpTracking[player.UserId] = {wasJumping = false}
         end
     end)
 end)
@@ -1315,9 +1539,9 @@ end)
 startMainUpdate()
 setupJumpTracking()
 
-print("✅ Murder Hub v7.0 Loaded!")
+print("✅ Murder Hub v8.0 Complete Edition Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Murder Hub",
-    Text = "✅ v7.0 Final Edition!",
+    Text = "✅ v8.0 Complete Edition!",
     Duration = 5
 })
