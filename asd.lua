@@ -76,8 +76,6 @@ local Settings = {
     VignetteEnabled = false,
     CustomSkyId = "",
     KillAllEnabled = false,
-    AimFOVEnabled = false,
-    AimFOVRadius = 65,
 }
 
 -- ========================================
@@ -102,7 +100,6 @@ local Cache = {
     TrailAttachments = {},
     KillAllConnection = nil,
     Knife = nil,
-    FOVCircle = nil,
 }
 
 local COLORS = {
@@ -112,51 +109,6 @@ local COLORS = {
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
 }
-
--- ========================================
--- ===== SKY PRESETS =====
--- ========================================
-
-local SkyPresets = {
-    ["Добрый хомяк"] = {
-        Bk = "rbxassetid://135457808082953",
-        Dn = "rbxassetid://135457808082953",
-        Ft = "rbxassetid://135457808082953",
-        Lf = "rbxassetid://135457808082953",
-        Rt = "rbxassetid://135457808082953",
-        Up = "rbxassetid://135457808082953",
-    },
-    ["Ночные тучи"] = {
-        Bk = "rbxassetid://100140210065251",
-        Dn = "rbxassetid://100140210065251",
-        Ft = "rbxassetid://100140210065251",
-        Lf = "rbxassetid://100140210065251",
-        Rt = "rbxassetid://100140210065251",
-        Up = "rbxassetid://100140210065251",
-    },
-    ["Космос"] = {
-        Bk = "rbxassetid://97059048850342",
-        Dn = "rbxassetid://97059048850342",
-        Ft = "rbxassetid://97059048850342",
-        Lf = "rbxassetid://97059048850342",
-        Rt = "rbxassetid://97059048850342",
-        Up = "rbxassetid://97059048850342",
-    },
-}
-
-local function applySkyPreset(preset)
-    local sky = Lighting:FindFirstChildOfClass("Sky")
-    if not sky then
-        sky = Instance.new("Sky")
-        sky.Parent = Lighting
-    end
-    sky.SkyboxBk = preset.Bk
-    sky.SkyboxDn = preset.Dn
-    sky.SkyboxFt = preset.Ft
-    sky.SkyboxLf = preset.Lf
-    sky.SkyboxRt = preset.Rt
-    sky.SkyboxUp = preset.Up
-end
 
 -- ========================================
 -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
@@ -378,101 +330,6 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== FOV AIM (С ПРЕДИКТОМ 0.5 СЕК) =====
--- ========================================
-
-local function createFOVCircle()
-    if Cache.FOVCircle then
-        Cache.FOVCircle:Remove()
-        Cache.FOVCircle = nil
-    end
-
-    if not Settings.AimFOVEnabled then return end
-
-    local circle = Drawing.new("Circle")
-    circle.Radius = Settings.AimFOVRadius
-    circle.Thickness = 2
-    circle.Color = Color3.fromRGB(255, 255, 255)
-    circle.Transparency = 0.5
-    circle.NumSides = 32
-    circle.Filled = false
-    circle.Visible = true
-    circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
-    Cache.FOVCircle = circle
-end
-
-local function updateFOVCircle()
-    if Cache.FOVCircle then
-        Cache.FOVCircle.Radius = Settings.AimFOVRadius
-        Cache.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    end
-end
-
-local function updateAim()
-    if not Settings.AimFOVEnabled then
-        if Cache.FOVCircle then
-            Cache.FOVCircle:Remove()
-            Cache.FOVCircle = nil
-        end
-        return
-    end
-
-    if not Cache.FOVCircle then
-        createFOVCircle()
-    end
-
-    local hasGun = checkGun(LocalPlayer)
-    if not hasGun then return end
-
-    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return end
-
-    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local closestMurder = nil
-    local closestDist = Settings.AimFOVRadius
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not player.Character then continue end
-        local role = getRole(player)
-        if role ~= "Murder" then continue end
-
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then continue end
-
-        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or screenPos.Z < 0 then continue end
-
-        local screenVec = Vector2.new(screenPos.X, screenPos.Y)
-        local dist = (center - screenVec).Magnitude
-
-        if dist < closestDist then
-            -- ПРЕДИКТ 0.5 СЕКУНДЫ
-            local velocity = hrp.AssemblyLinearVelocity
-            local predictedPos = hrp.Position + (velocity * 0.5)
-
-            local predScreen, predOnScreen = Camera:WorldToScreenPoint(predictedPos)
-            if predOnScreen and predScreen.Z > 0 then
-                local predVec = Vector2.new(predScreen.X, predScreen.Y)
-                local predDist = (center - predVec).Magnitude
-                if predDist < closestDist then
-                    closestDist = predDist
-                    closestMurder = {player = player, predictedPos = predictedPos}
-                end
-            end
-        end
-    end
-
-    if closestMurder then
-        local targetPos = closestMurder.predictedPos
-        local currentCamPos = Camera.CFrame.Position
-        local lookVector = (targetPos - currentCamPos).Unit
-        local targetCFrame = CFrame.lookAt(currentCamPos, currentCamPos + lookVector)
-        Camera.CFrame = targetCFrame
-    end
-end
-
--- ========================================
 -- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ ПОСЛЕ СМЕРТИ) =====
 -- ========================================
 
@@ -530,7 +387,7 @@ local function removeLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== SHADERS =====
+-- ===== SHADERS (ВЕРНУЛ) =====
 -- ========================================
 
 local function setupBloom(enabled)
@@ -1456,16 +1313,6 @@ local function startMainUpdate()
         if Settings.JumpCircles then
             updateJumpCircles()
         end
-
-        if Settings.AimFOVEnabled then
-            updateAim()
-            updateFOVCircle()
-        else
-            if Cache.FOVCircle then
-                Cache.FOVCircle:Remove()
-                Cache.FOVCircle = nil
-            end
-        end
     end)
 end
 
@@ -1717,7 +1564,7 @@ RageSection:Input({
 -- COMBAT TAB
 local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
 local CombatSection = CombatTab:Section({ Title = "Combat", Side = "Left" })
-local CombatSection2 = CombatTab:Section({ Title = "Aim", Side = "Right" })
+local CombatSection2 = CombatTab:Section({ Title = "Advanced", Side = "Right" })
 
 local noclipConn = nil
 
@@ -1824,42 +1671,6 @@ CombatSection2:Input({
         local num = tonumber(value)
         if num then Settings.WallThoughtRadius = num end
     end
-})
-
-CombatSection2:Toggle({
-    Title = "FOV Aim (Auto Aim on Murder)",
-    Default = false,
-    Callback = function(v)
-        Settings.AimFOVEnabled = v
-        if v then
-            createFOVCircle()
-        else
-            if Cache.FOVCircle then
-                Cache.FOVCircle:Remove()
-                Cache.FOVCircle = nil
-            end
-        end
-        startMainUpdate()
-    end
-})
-
-CombatSection2:Input({
-    Title = "FOV Radius",
-    Default = "65",
-    Placeholder = "65",
-    Callback = function(v)
-        local num = tonumber(v)
-        if num then
-            Settings.AimFOVRadius = num
-            updateFOVCircle()
-        end
-    end
-})
-
-CombatSection2:Label({
-    Title = "⚡ Pre-diction: 0.5 sec",
-    Description = "Aim leads target automatically",
-    Icon = "target"
 })
 
 -- VISUAL TAB
@@ -1996,7 +1807,10 @@ VisualSection2:Toggle({
     end
 })
 
--- SHADERS TAB
+-- ========================================
+-- ===== SHADERS TAB (ВЕРНУЛ) =====
+-- ========================================
+
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
 local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
 
@@ -2027,50 +1841,28 @@ ShadersSection:Toggle({
     end
 })
 
--- SKY TAB
+-- ========================================
+-- ===== SKY TAB =====
+-- ========================================
+
 local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
-local SkySection = SkyTab:Section({ Title = "Sky Presets", Side = "Left" })
-local SkySection2 = SkyTab:Section({ Title = "Custom Sky", Side = "Right" })
+local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
 
-SkySection:Button({
-    Title = "🌤 Добрый хомяк",
-    Callback = function()
-        applySkyPreset(SkyPresets["Добрый хомяк"])
-        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Добрый хомяк applied!", Duration = 2})
-    end
-})
-
-SkySection:Button({
-    Title = "🌙 Ночные тучи",
-    Callback = function()
-        applySkyPreset(SkyPresets["Ночные тучи"])
-        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Ночные тучи applied!", Duration = 2})
-    end
-})
-
-SkySection:Button({
-    Title = "🚀 Космос",
-    Callback = function()
-        applySkyPreset(SkyPresets["Космос"])
-        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Космос applied!", Duration = 2})
-    end
-})
-
-SkySection2:Input({
-    Title = "Custom Sky ID",
+SkySection:Input({
+    Title = "Sky ID",
     Default = "",
     Placeholder = "rbxassetid://...",
     Callback = function(v) Settings.CustomSkyId = v end
 })
 
-SkySection2:Button({
-    Title = "Apply Custom Sky",
+SkySection:Button({
+    Title = "Apply Sky",
     Callback = function()
         if Settings.CustomSkyId ~= "" then
             setupSky(Settings.CustomSkyId)
             StarterGui:SetCore("SendNotification", {
                 Title = "Sky",
-                Text = "Custom sky applied!",
+                Text = "Sky applied!",
                 Duration = 2
             })
         end
@@ -2139,6 +1931,80 @@ AntiAFKSection:Toggle({
     Callback = function(v)
         Settings.AntiAFKEnabled = v
         setupAntiAFK()
+    end
+})
+
+-- PROFILE TAB
+local ProfileTab = Window:Tab({ Title = "Profile", Icon = "user" })
+local ProfileSection = ProfileTab:Section({ Title = "Player Info", Side = "Left" })
+
+local function updatePlayerInfo()
+    pcall(function()
+        ProfileSection:Clear()
+
+        local username = LocalPlayer.Name
+        local userId = LocalPlayer.UserId
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local health = humanoid and humanoid.Health or 0
+        local maxHealth = humanoid and humanoid.MaxHealth or 100
+
+        ProfileSection:Label({
+            Title = "Nickname: " .. username,
+            Description = "ID: " .. userId,
+            Icon = "user"
+        })
+
+        ProfileSection:Label({
+            Title = "Health: " .. math.floor(health) .. "/" .. maxHealth,
+            Description = "Status: " .. (health > 0 and "✅ Alive" or "❌ Dead"),
+            Icon = "heart"
+        })
+
+        -- Показываем, есть ли нож
+        local hasKnife = getKnife() ~= nil
+        ProfileSection:Label({
+            Title = "Knife: " .. (hasKnife and "✅ Yes" or "❌ No"),
+            Description = hasKnife and "Ready to kill!" or "Find a knife!",
+            Icon = "sword"
+        })
+    end)
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    updatePlayerInfo()
+end)
+
+task.spawn(function()
+    while true do
+        updatePlayerInfo()
+        task.wait(1)
+    end
+end)
+
+updatePlayerInfo()
+
+-- SETTINGS TAB
+local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
+local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
+
+SettingsSection:Label({
+    Title = "PlanetHub v3.0 ULTIMATE",
+    Description = "By MMV and MM2",
+    Icon = "crown"
+})
+
+SettingsSection:Button({
+    Title = "Close UI",
+    Callback = function() Window:Destroy() end
+})
+
+SettingsSection:Button({
+    Title = "Rejoin Game",
+    Callback = function()
+        local TeleportService = game:GetService("TeleportService")
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
     end
 })
 
@@ -2227,6 +2093,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 
     setupRGBHumanoid()
+    updatePlayerInfo()
 
     if Settings.JumpCircles then
         setupJumpTracking()
@@ -2244,10 +2111,6 @@ LocalPlayer.CharacterAdded:Connect(function()
     if Settings.CrosshairEnabled then
         createCrosshair()
     end
-
-    if Settings.AimFOVEnabled then
-        createFOVCircle()
-    end
 end)
 
 startMainUpdate()
@@ -2257,6 +2120,6 @@ setupSheriffDeadNotif()
 print("✅ PlanetHub v3.0 ULTIMATE Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v3.0 | Shaders + Kill All + Auto Update + Aim + Sky Presets",
+    Text = "PlanetHub v3.0 | Shaders + Kill All + Auto Update",
     Duration = 5
 })
