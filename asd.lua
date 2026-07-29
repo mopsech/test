@@ -56,6 +56,7 @@ local Settings = {
     ParticlesEnabled = false,
     RGBHumanoid = false,
     NimbEnabled = false,
+    XRayEnabled = false,
     
     -- Particles
     ParticleCount = 100,
@@ -79,6 +80,7 @@ local Settings = {
     FlySpeed = 100,
     MaxFlySpeed = 1000,
     BHopEnabled = false,
+    BHopSpeed = 25,
     SpinBotEnabled = false,
     
     -- Combat
@@ -87,8 +89,6 @@ local Settings = {
     FOVChanger = 70,
     WallThoughtEnabled = false,
     WallThoughtRadius = 50,
-    AimbotEnabled = false,
-    AimbotRadius = 150,
     
     -- Anti-AFK
     AntiAFKEnabled = false,
@@ -118,6 +118,7 @@ local Cache = {
     NimbPart = nil,
     AutoFarmConnection = nil,
     CurrentTween = nil,
+    XRayParts = {},
 }
 
 local COLORS = {
@@ -228,7 +229,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS =====
+-- ===== CHAMS (КАК ВЫПУКЛОСТЬ) =====
 -- ========================================
 
 local function applyChams(player)
@@ -247,9 +248,9 @@ local function applyChams(player)
             end
             
             if Settings.ChamsEnabled then
-                part.Material = Enum.Material.Neon
+                part.Material = Enum.Material.ForceField
                 part.Color = COLORS.Purple
-                part.Transparency = 0.1
+                part.Transparency = 0.3
             end
         end
     end
@@ -292,7 +293,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== RGB HUMANOID =====
+-- ===== RGB HUMANOID (КАК CHAMS) =====
 -- ========================================
 
 local function setupRGBHumanoid()
@@ -307,9 +308,9 @@ local function setupRGBHumanoid()
             
             for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                 if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    part.Material = Enum.Material.Neon
+                    part.Material = Enum.Material.ForceField
                     part.Color = color
-                    part.Transparency = 0.1
+                    part.Transparency = 0.3
                 end
             end
         end)
@@ -330,7 +331,7 @@ local function setupRGBHumanoid()
 end
 
 -- ========================================
--- ===== NIMB =====
+-- ===== NIMB (3D ОБЪЕКТ НАД ГОЛОВОЙ) =====
 -- ========================================
 
 local function setupNimb()
@@ -344,15 +345,16 @@ local function setupNimb()
             pcall(function() Cache.NimbPart:Destroy() end)
         end
         
+        -- Создаём тор для ореола (кольцо)
         local nimb = Instance.new("Part")
         nimb.Name = "Nimb"
-        nimb.Shape = Enum.PartType.Ball
-        nimb.Size = Vector3.new(5, 5, 5)
+        nimb.Shape = Enum.PartType.Torus
+        nimb.Size = Vector3.new(3, 3, 3)
         nimb.Material = Enum.Material.Neon
         nimb.Color = COLORS.Purple
-        nimb.Transparency = 0.5
+        nimb.Transparency = 0.2
         nimb.CanCollide = false
-        nimb.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
+        nimb.Anchored = false
         nimb.TopSurface = Enum.SurfaceType.Smooth
         nimb.BottomSurface = Enum.SurfaceType.Smooth
         nimb.Parent = LocalPlayer.Character
@@ -361,6 +363,9 @@ local function setupNimb()
         weld.Part0 = nimb
         weld.Part1 = hrp
         weld.Parent = nimb
+        
+        -- Позиционируем над головой
+        nimb.Position = hrp.Position + Vector3.new(0, 3, 0)
         
         Cache.NimbPart = nimb
         
@@ -372,9 +377,8 @@ local function setupNimb()
                 return
             end
             
-            local t = tick()
-            Cache.NimbPart.Color = Color3.fromHSV(t % 1, 1, 1)
-            Cache.NimbPart.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
+            -- Вращаем ореол
+            Cache.NimbPart.CFrame = Cache.NimbPart.CFrame * CFrame.Angles(math.rad(1), math.rad(1.5), 0)
         end)
     else
         safeDisconnect(Cache.NimbConnection)
@@ -383,6 +387,30 @@ local function setupNimb()
             pcall(function() Cache.NimbPart:Destroy() end)
             Cache.NimbPart = nil
         end
+    end
+end
+
+-- ========================================
+-- ===== XRAY =====
+-- ========================================
+
+local function setupXRay()
+    if Settings.XRayEnabled then
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part:IsA("BasePart") and not part:IsA("Terrain") then
+                Cache.XRayParts[part] = part.Transparency
+                part.LocalTransparencyModifier = 0.5
+            end
+        end
+    else
+        for part, transparency in pairs(Cache.XRayParts) do
+            if part and part.Parent then
+                pcall(function()
+                    part.LocalTransparencyModifier = transparency
+                end)
+            end
+        end
+        Cache.XRayParts = {}
     end
 end
 
@@ -477,10 +505,8 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES =====
+-- ===== JUMP CIRCLES (ТОЛЬКО ДЛЯ ЛОКАЛЬНОГО) =====
 -- ========================================
-
-local jumpTracking = {}
 
 local function createJumpCircleAtPosition(position)
     if not Settings.JumpCircles then return end
@@ -530,39 +556,33 @@ local function createJumpCircleAtPosition(position)
 end
 
 local function setupJumpTracking()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if not jumpTracking[player.UserId] then
-            if player.Character then
-                jumpTracking[player.UserId] = {wasJumping = false}
-            end
+    if LocalPlayer.Character then
+        if not Cache.JumpTracking["local"] then
+            Cache.JumpTracking["local"] = {wasJumping = false}
         end
     end
 end
 
 local function updateJumpCircles()
-    if not Settings.JumpCircles then return end
+    if not Settings.JumpCircles or not LocalPlayer.Character then return end
     
-    for _, player in ipairs(Players:GetPlayers()) do
-        if not player or not player.Character then continue end
-        
-        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        
-        if humanoid and hrp then
-            local tracking = jumpTracking[player.UserId]
-            if not tracking then
-                tracking = {wasJumping = false}
-                jumpTracking[player.UserId] = tracking
-            end
-            
-            local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
-            
-            if isJumping and not tracking.wasJumping then
-                createJumpCircleAtPosition(hrp.Position)
-            end
-            
-            tracking.wasJumping = isJumping
+    local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    
+    if humanoid and hrp then
+        local tracking = Cache.JumpTracking["local"]
+        if not tracking then
+            tracking = {wasJumping = false}
+            Cache.JumpTracking["local"] = tracking
         end
+        
+        local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
+        
+        if isJumping and not tracking.wasJumping then
+            createJumpCircleAtPosition(hrp.Position)
+        end
+        
+        tracking.wasJumping = isJumping
     end
 end
 
@@ -847,48 +867,6 @@ local function setupWallThought()
         end)
     else
         safeDisconnect(wallThoughtConnection)
-    end
-end
-
--- ========================================
--- ===== AIMBOT =====
--- ========================================
-
-local aimbotConnection = nil
-
-local function setupAimbot()
-    if Settings.AimbotEnabled then
-        aimbotConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.AimbotEnabled or not LocalPlayer.Character then return end
-            
-            local closestPlayer = nil
-            local closestDistance = Settings.AimbotRadius
-            
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player == LocalPlayer or not player.Character then continue end
-                
-                if not checkKnife(player) then continue end
-                
-                local targetPos = player.Character:FindFirstChild("Head")
-                if not targetPos then continue end
-                
-                local distToTarget = (LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position - targetPos.Position).Magnitude
-                
-                if distToTarget < closestDistance then
-                    closestDistance = distToTarget
-                    closestPlayer = player
-                end
-            end
-            
-            if closestPlayer and closestPlayer.Character then
-                local targetHead = closestPlayer.Character:FindFirstChild("Head")
-                if targetHead then
-                    Camera.Focus = targetHead
-                end
-            end
-        end)
-    else
-        safeDisconnect(aimbotConnection)
     end
 end
 
@@ -1194,22 +1172,97 @@ local function stopFly()
 end
 
 -- ========================================
--- ===== SPIN BOT =====
+-- ===== SPIN BOT (НОРМАЛЬНЫЙ) =====
 -- ========================================
 
 local spinConnection = nil
+local spinActive = false
 
 local function setupSpinBot()
     if Settings.SpinBotEnabled then
+        spinActive = true
         spinConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
+            if not spinActive or not LocalPlayer.Character then
+                spinActive = false
+                return
+            end
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(10), 0)
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(0.5), 0)
             end
         end)
     else
+        spinActive = false
         safeDisconnect(spinConnection)
+        spinConnection = nil
+    end
+end
+
+-- ========================================
+-- ===== BUNNY HOP (РАБОЧИЙ) =====
+-- ========================================
+
+local bhopConnection = nil
+local bhopActive = false
+local lastBHopTime = 0
+local bhopCooldown = 0
+
+local function setupBunnyHop()
+    if Settings.BHopEnabled then
+        bhopActive = true
+        if bhopConnection then safeDisconnect(bhopConnection) end
+        
+        bhopConnection = RunService.RenderStepped:Connect(function()
+            if not bhopActive or not LocalPlayer.Character then
+                bhopActive = false
+                return
+            end
+            
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            
+            if not humanoid or not hrp then return end
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                local currentTime = tick()
+                if currentTime - lastBHopTime > bhopCooldown then
+                    humanoid.Jump = true
+                    lastBHopTime = currentTime
+                    bhopCooldown = 0.05
+                    
+                    -- Ускорение в направлении взгляда камеры
+                    local moveDir = Vector3.new(0, 0, 0)
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                        moveDir = moveDir + Camera.CFrame.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                        moveDir = moveDir - Camera.CFrame.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                        moveDir = moveDir - Camera.CFrame.RightVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                        moveDir = moveDir + Camera.CFrame.RightVector
+                    end
+                    
+                    if moveDir.Magnitude > 0 then
+                        moveDir = moveDir.Unit
+                    end
+                    
+                    -- Применяем ускорение
+                    local currentVel = hrp.Velocity
+                    hrp.Velocity = Vector3.new(
+                        moveDir.X * Settings.BHopSpeed,
+                        currentVel.Y,
+                        moveDir.Z * Settings.BHopSpeed
+                    )
+                end
+            end
+        end)
+    else
+        bhopActive = false
+        safeDisconnect(bhopConnection)
+        bhopConnection = nil
     end
 end
 
@@ -1401,7 +1454,6 @@ RageSection2:Toggle({
     Title = "Fly",
     Default = false,
     Callback = function(value)
-        Settings.FlyEnabled = value
         if value then
             startFly()
         else
@@ -1431,26 +1483,22 @@ RageSection2:Input({
 })
 
 -- BUNNY HOP
-local bhopConn = nil
-
 RageSection:Toggle({
     Title = "Bunny Hop",
     Default = false,
     Callback = function(value)
-        if value then
-            bhopConn = RunService.RenderStepped:Connect(function()
-                if not LocalPlayer.Character then return end
-                
-                local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                    if humanoid:GetState() ~= Enum.HumanoidStateType.Landed then
-                        humanoid.Jump = true
-                    end
-                end
-            end)
-        else
-            safeDisconnect(bhopConn)
-        end
+        Settings.BHopEnabled = value
+        setupBunnyHop()
+    end
+})
+
+RageSection:Input({
+    Title = "BHop Speed",
+    Default = "25",
+    Placeholder = "25",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then Settings.BHopSpeed = math.clamp(num, 16, 80) end
     end
 })
 
@@ -1575,26 +1623,6 @@ CombatSection2:Input({
     Callback = function(value)
         local num = tonumber(value)
         if num then Settings.WallThoughtRadius = num end
-    end
-})
-
--- AIMBOT
-CombatSection2:Toggle({
-    Title = "Aimbot (ShiftLock)",
-    Default = false,
-    Callback = function(value)
-        Settings.AimbotEnabled = value
-        setupAimbot()
-    end
-})
-
-CombatSection2:Input({
-    Title = "Aimbot Radius",
-    Default = "150",
-    Placeholder = "150",
-    Callback = function(value)
-        local num = tonumber(value)
-        if num then Settings.AimbotRadius = num end
     end
 })
 
@@ -1751,11 +1779,20 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Nimb",
+    Title = "Nimb (Halo)",
     Default = false,
     Callback = function(v)
         Settings.NimbEnabled = v
         setupNimb()
+    end
+})
+
+VisualSection2:Toggle({
+    Title = "XRay",
+    Default = false,
+    Callback = function(v)
+        Settings.XRayEnabled = v
+        setupXRay()
     end
 })
 
@@ -1916,6 +1953,53 @@ AutoFarmSection2:Input({
 })
 
 -- ========================================
+-- ===== PROFILE TAB =====
+-- ========================================
+
+local ProfileTab = Window:Tab({ Title = "Profile", Icon = "user" })
+local ProfileSection = ProfileTab:Section({ Title = "Player Info", Side = "Left" })
+
+-- Обновляем информацию игрока
+local function updatePlayerInfo()
+    ProfileSection:Clear()
+    
+    local username = LocalPlayer.Name
+    local userId = LocalPlayer.UserId
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local health = humanoid and humanoid.Health or 0
+    local maxHealth = humanoid and humanoid.MaxHealth or 100
+    
+    ProfileSection:Label({
+        Title = "Nickname: " .. username,
+        Description = "ID: " .. userId,
+        Icon = "user"
+    })
+    
+    ProfileSection:Label({
+        Title = "Health: " .. math.floor(health) .. "/" .. maxHealth,
+        Description = "Status: " .. (health > 0 and "✅ Alive" or "❌ Dead"),
+        Icon = "heart"
+    })
+end
+
+-- Обновляем при смене персонажа
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    updatePlayerInfo()
+end)
+
+-- Обновляем каждую секунду
+task.spawn(function()
+    while true do
+        updatePlayerInfo()
+        task.wait(1)
+    end
+end)
+
+updatePlayerInfo()
+
+-- ========================================
 -- ===== SETTINGS TAB =====
 -- ========================================
 
@@ -1923,7 +2007,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlantHub",
+    Title = "PlantHub v2.0",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -1952,7 +2036,7 @@ Players.PlayerAdded:Connect(function(player)
             createSkeletonForPlayer(player)
         end
         if Settings.JumpCircles then
-            jumpTracking[player.UserId] = {wasJumping = false}
+            Cache.JumpTracking[player.UserId] = {wasJumping = false}
         end
     end)
 end)
@@ -1964,6 +2048,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     clearAllSkeletons()
     setupRGBHumanoid()
     setupNimb()
+    updatePlayerInfo()
     
     if Settings.JumpCircles then
         setupJumpTracking()
@@ -1978,9 +2063,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlantHub Loaded!")
+print("✅ PlantHub v2.0 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlantHub | By MMV and MM2",
+    Text = "PlantHub v2.0 | By MMV and MM2",
     Duration = 5
 })
