@@ -1,5 +1,5 @@
 -- ========================================
--- ===== WIND UI ХАБ =====
+-- ===== PLANT HUB =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -8,10 +8,10 @@ WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
 
 local Window = WindUI:CreateWindow({
-    Title = "Murder Hub",
-    Author = "Vibe Coder",
+    Title = "PlantHub",
+    Author = "MMV and MM2",
     Icon = "crown",
-    Folder = "MurderHubSettings",
+    Folder = "PlantHubSettings",
     Size = UDim2.fromOffset(720, 600),
     Resizable = true,
     Transparent = true,
@@ -54,7 +54,7 @@ local Settings = {
     FogEnabled = false,
     ParticlesEnabled = false,
     
-    -- Particles (ФИКСИРОВАННЫЕ ЗНАЧЕНИЯ)
+    -- Particles
     ParticleCount = 100,
     ParticleRange = 50,
     
@@ -73,25 +73,26 @@ local Settings = {
     
     -- Rage
     FlyEnabled = false,
-    FlySpeed = 80,
+    FlySpeed = 100,
+    MaxFlySpeed = 1000,
     BHopEnabled = false,
     SpinBotEnabled = false,
-    SpinSpeed = 5,
+    SpinSpeed = 300,
     
     -- Combat
     NoclipEnabled = false,
     AntiFlingEnabled = false,
     FOVChanger = 70,
-    FlingEnabled = false,
     WallThoughtEnabled = false,
     WallThoughtRadius = 50,
-    SilentAimEnabled = false,
-    SilentAimRadius = 150,
     AimbotEnabled = false,
     AimbotRadius = 150,
     
     -- Anti-AFK
-    AntiAFKEnabled = false
+    AntiAFKEnabled = false,
+    
+    -- Auto Jump Bomb
+    AutoJumpBombEnabled = false
 }
 
 -- ========================================
@@ -106,8 +107,7 @@ local Cache = {
     ChamsParts = {},
     Particles = {},
     PostEffects = {},
-    JumpTracking = {},
-    BoneLines = {}
+    JumpTracking = {}
 }
 
 local COLORS = {
@@ -218,7 +218,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS =====
+-- ===== CHAMS (ВЫПУКЛОСТЬ) =====
 -- ========================================
 
 local function applyChams(player)
@@ -237,9 +237,25 @@ local function applyChams(player)
             end
             
             if Settings.ChamsEnabled then
+                -- Создаём выпуклый эффект
                 part.Material = Enum.Material.Neon
                 part.Color = COLORS.Purple
-                part.Transparency = 0.2
+                part.Transparency = 0.1
+                
+                -- Добавляем Surface Shine
+                local surfaceGui = part:FindFirstChild("SurfaceGui")
+                if not surfaceGui then
+                    surfaceGui = Instance.new("SurfaceGui")
+                    surfaceGui.Face = Enum.NormalId.Front
+                    surfaceGui.Parent = part
+                    
+                    local shine = Instance.new("Frame")
+                    shine.Size = UDim2.new(1, 0, 1, 0)
+                    shine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                    shine.BackgroundTransparency = 0.8
+                    shine.BorderSizePixel = 0
+                    shine.Parent = surfaceGui
+                end
             end
         end
     end
@@ -259,6 +275,9 @@ local function removeChams(player)
                 part.Material = data.ogMaterial
                 part.Color = data.ogColor
                 part.Transparency = data.ogTransparency
+                
+                local surfaceGui = part:FindFirstChild("SurfaceGui")
+                if surfaceGui then surfaceGui:Destroy() end
             end)
         end
     end
@@ -274,6 +293,9 @@ local function clearAllChams()
                     part.Material = data.ogMaterial
                     part.Color = data.ogColor
                     part.Transparency = data.ogTransparency
+                    
+                    local surfaceGui = part:FindFirstChild("SurfaceGui")
+                    if surfaceGui then surfaceGui:Destroy() end
                 end)
             end
         end
@@ -282,7 +304,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== SKELETON ESP (ПАЛОЧКИ) =====
+-- ===== SKELETON ESP =====
 -- ========================================
 
 local SKELETON_BONES = {
@@ -372,7 +394,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES (НА СТОПАХ) =====
+-- ===== JUMP CIRCLES =====
 -- ========================================
 
 local jumpTracking = {}
@@ -719,7 +741,7 @@ local function createCrosshair()
 end
 
 -- ========================================
--- ===== WALL THOUGHT (KILL THROUGH WALL) =====
+-- ===== WALL THOUGHT =====
 -- ========================================
 
 local wallThoughtConnection = nil
@@ -752,7 +774,7 @@ local function setupWallThought()
 end
 
 -- ========================================
--- ===== AIMBOT (ОТДЕЛЬНО) =====
+-- ===== AIMBOT (ШИФТЛОК ТЕЛЕФОН) =====
 -- ========================================
 
 local aimbotConnection = nil
@@ -768,27 +790,24 @@ local function setupAimbot()
             for _, player in ipairs(Players:GetPlayers()) do
                 if player == LocalPlayer or not player.Character then continue end
                 
-                -- Только на Murder
                 if not checkKnife(player) then continue end
                 
                 local targetPos = player.Character:FindFirstChild("Head")
                 if not targetPos then continue end
                 
-                local screenPos, onScreen = Camera:WorldToScreenPoint(targetPos.Position)
-                if onScreen then
-                    local distance = (screenPos - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
-                    
-                    if distance < closestDistance then
-                        closestDistance = distance
-                        closestPlayer = player
-                    end
+                local distToTarget = (LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position - targetPos.Position).Magnitude
+                
+                if distToTarget < closestDistance then
+                    closestDistance = distToTarget
+                    closestPlayer = player
                 end
             end
             
             if closestPlayer and closestPlayer.Character then
                 local targetHead = closestPlayer.Character:FindFirstChild("Head")
                 if targetHead then
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+                    -- Оптимизировано под шифтлок
+                    Camera.Focus = targetHead
                 end
             end
         end)
@@ -802,8 +821,6 @@ end
 -- ========================================
 
 local afkConnection = nil
-local afkKeys = {Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D}
-local afkKeyIndex = 1
 
 local function setupAntiAFK()
     if Settings.AntiAFKEnabled then
@@ -812,7 +829,6 @@ local function setupAntiAFK()
             
             local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if humanoid then
-                -- Имитация движения
                 if math.random(1, 100) < 30 then
                     humanoid.Jump = true
                 end
@@ -824,93 +840,278 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== FLING ПО РОЛЯМ =====
+-- ===== NORMAL FLY (РАБОЧИЙ) =====
 -- ========================================
 
-local function flingPlayer(player)
-    if not player or not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+local flyConnection = nil
+local isFlying = false
+local originalGravity = workspace.Gravity
+
+local function startFly()
+    if not LocalPlayer.Character then return end
     
-    hrp.AssemblyLinearVelocity = Vector3.new(
-        math.random(-999, 999),
-        math.random(500, 999),
-        math.random(-999, 999)
-    )
+    local character = LocalPlayer.Character
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoid or not hrp then return end
+    
+    isFlying = true
+    originalGravity = workspace.Gravity
+    workspace.Gravity = 0
+    humanoid.PlatformStand = true
+    
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    bodyVelocity.Parent = hrp
+    
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+    bodyGyro.P = 1000
+    bodyGyro.Parent = hrp
+    
+    local currentSpeed = Settings.FlySpeed
+    
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not isFlying or not character or not hrp or not hrp.Parent then
+            safeDisconnect(flyConnection)
+            if humanoid then
+                humanoid.PlatformStand = false
+            end
+            workspace.Gravity = originalGravity
+            pcall(function() bodyVelocity:Destroy() end)
+            pcall(function() bodyGyro:Destroy() end)
+            return
+        end
+        
+        local moveDir = Vector3.new(0, 0, 0)
+        local cameraCFrame = workspace.CurrentCamera.CFrame
+        
+        moveDir = moveDir + (UserInputService:IsKeyDown(Enum.KeyCode.W) and cameraCFrame.LookVector or Vector3.new())
+        moveDir = moveDir - (UserInputService:IsKeyDown(Enum.KeyCode.S) and cameraCFrame.LookVector or Vector3.new())
+        moveDir = moveDir - (UserInputService:IsKeyDown(Enum.KeyCode.A) and cameraCFrame.RightVector or Vector3.new())
+        moveDir = moveDir + (UserInputService:IsKeyDown(Enum.KeyCode.D) and cameraCFrame.RightVector or Vector3.new())
+        moveDir = moveDir + (UserInputService:IsKeyDown(Enum.KeyCode.Space) and Vector3.new(0, 1, 0) or Vector3.new())
+        moveDir = moveDir - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and Vector3.new(0, 1, 0) or Vector3.new())
+        
+        if moveDir.Magnitude > 0 then
+            currentSpeed = math.min(currentSpeed + 0.4, Settings.MaxFlySpeed)
+            moveDir = moveDir.Unit * currentSpeed
+        else
+            currentSpeed = Settings.FlySpeed
+            moveDir = Vector3.new(0, 0, 0)
+        end
+        
+        bodyVelocity.Velocity = moveDir
+        bodyGyro.CFrame = cameraCFrame
+    end)
+end
+
+local function stopFly()
+    isFlying = false
+    safeDisconnect(flyConnection)
 end
 
 -- ========================================
--- ===== FLING (РАБОЧИЙ) =====
+-- ===== AUTO JUMP BOMB =====
 -- ========================================
 
-local flingConnection = nil
+local jumpBombGui = nil
+local jumpBombConnection = nil
+local canThrowBomb = true
 
-local function startFling()
-    if Settings.FlingEnabled then
-        local character = LocalPlayer.Character
-        if not character then return end
+local function createJumpBombButton()
+    if jumpBombGui then jumpBombGui:Destroy() end
+    
+    jumpBombGui = Instance.new("ScreenGui")
+    jumpBombGui.Name = "JumpBombButton"
+    jumpBombGui.ResetOnSpawn = false
+    jumpBombGui.IgnoreGuiInset = true
+    
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 80, 0, 50)
+    button.Position = UDim2.new(0.5, -40, 0.85, 0)
+    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    button.Text = "JUMP"
+    button.TextSize = 18
+    button.TextColor3 = COLORS.Purple
+    button.BorderSizePixel = 0
+    button.Parent = jumpBombGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = button
+    
+    local function throwBomb()
+        if not LocalPlayer.Character then return end
         
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        
-        if not humanoid or not hrp then return end
-        
-        flingConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.FlingEnabled or not character or not hrp.Parent then
-                safeDisconnect(flingConnection)
-                return
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            local bomb = backpack:FindFirstChild("Bomb")
+            if bomb then
+                local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                
+                if humanoid and hrp then
+                    -- Бросаем бомбу
+                    humanoid:EquipTool(bomb)
+                    task.wait(0.1)
+                    bomb:Activate()
+                    
+                    -- Двойной прыжок
+                    humanoid.Jump = true
+                    task.wait(0.2)
+                    humanoid.Jump = true
+                end
             end
-            
-            hrp.Velocity = hrp.CFrame.LookVector * 100 + Vector3.new(0, 100, 0)
-            hrp.RotVelocity = Vector3.new(500, 500, 500)
-            humanoid.Jump = true
+        end
+    end
+    
+    button.MouseButton1Click:Connect(throwBomb)
+    jumpBombGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function setupAutoJumpBomb()
+    if Settings.AutoJumpBombEnabled then
+        createJumpBombButton()
+        
+        UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.KeyCode == Enum.KeyCode.R then
+                if not LocalPlayer.Character then return end
+                
+                local backpack = LocalPlayer:FindFirstChild("Backpack")
+                if backpack then
+                    local bomb = backpack:FindFirstChild("Bomb")
+                    if bomb then
+                        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        
+                        if humanoid and hrp then
+                            humanoid:EquipTool(bomb)
+                            task.wait(0.1)
+                            bomb:Activate()
+                            
+                            humanoid.Jump = true
+                            task.wait(0.2)
+                            humanoid.Jump = true
+                        end
+                    end
+                end
+            end
         end)
     else
-        safeDisconnect(flingConnection)
+        if jumpBombGui then
+            jumpBombGui:Destroy()
+            jumpBombGui = nil
+        end
     end
 end
 
 -- ========================================
--- ===== ANTI FLING =====
+-- ===== SHERIFF DEAD NOTIF =====
 -- ========================================
 
-local antiFlingConnection = nil
+local function setupSheriffDeadNotif()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            player.CharacterRemoving:Connect(function(character)
+                if checkGun(player) then
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "⚠️ SHERIFF",
+                        Text = player.Name .. " is dead!",
+                        Duration = 3,
+                        Icon = "rbxasset://textures/face.png"
+                    })
+                end
+            end)
+        end
+    end
+    
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Died:Connect(function()
+                    if checkGun(player) then
+                        StarterGui:SetCore("SendNotification", {
+                            Title = "⚠️ SHERIFF",
+                            Text = player.Name .. " is dead!",
+                            Duration = 3
+                        })
+                    end
+                end)
+            end
+        end)
+    end)
+end
 
-local function setupAntiFling()
-    if Settings.AntiFlingEnabled then
-        antiFlingConnection = RunService.Heartbeat:Connect(function()
-            if not Settings.AntiFlingEnabled or not LocalPlayer.Character then return end
-            
-            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
-                    if theirHrp then
-                        theirHrp.CanCollide = false
+-- ========================================
+-- ===== FLING TARGET =====
+-- ========================================
+
+local selectedFlingTarget = nil
+
+local function flingTarget()
+    if not selectedFlingTarget or not selectedFlingTarget.Character then
+        -- Выбираем ближайшего
+        local closestPlayer = nil
+        local closestDist = 100
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer or not player.Character then continue end
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if myHRP then
+                    local dist = (myHRP.Position - hrp.Position).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestPlayer = player
                     end
                 end
             end
+        end
+        
+        selectedFlingTarget = closestPlayer
+    end
+    
+    if selectedFlingTarget and selectedFlingTarget.Character then
+        local hrp = selectedFlingTarget.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                math.random(-999, 999),
+                math.random(500, 999),
+                math.random(-999, 999)
+            )
             
-            if hrp.AssemblyLinearVelocity.Magnitude > 150 then
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end
-            if hrp.AssemblyAngularVelocity.Magnitude > 50 then
-                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            StarterGui:SetCore("SendNotification", {
+                Title = "Fling",
+                Text = "Flinged: " .. selectedFlingTarget.Name,
+                Duration = 2
+            })
+        end
+    end
+end
+
+-- ========================================
+-- ===== SPIN BOT 300/SEC =====
+-- ========================================
+
+local spinConnection = nil
+
+local function setupSpinBot()
+    if Settings.SpinBotEnabled then
+        spinConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- 300 оборотов в секунду = 300 * 360 / 60 градусов за кадр
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(300 * 360 / 60 / 60), 0)
             end
         end)
     else
-        safeDisconnect(antiFlingConnection)
-        
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
-                if theirHrp then
-                    theirHrp.CanCollide = true
-                end
-            end
-        end
+        safeDisconnect(spinConnection)
     end
 end
 
@@ -1011,64 +1212,39 @@ end
 
 local RageTab = Window:Tab({ Title = "Rage", Icon = "sword" })
 local RageSection = RageTab:Section({ Title = "Rage Settings", Side = "Left" })
+local RageSection2 = RageTab:Section({ Title = "Flight", Side = "Right" })
 
 -- FLY
-local flyConn = nil
-local bodyGyro = nil
-local bodyVel = nil
-
-RageSection:Toggle({
+RageSection2:Toggle({
     Title = "Fly",
     Default = false,
     Callback = function(value)
         Settings.FlyEnabled = value
-        
         if value then
-            local char = LocalPlayer.Character
-            if not char then return end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            
-            for _, obj in ipairs(hrp:GetChildren()) do
-                if obj:IsA("BodyGyro") or obj:IsA("BodyVelocity") then obj:Destroy() end
-            end
-            
-            bodyGyro = Instance.new("BodyGyro")
-            bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-            bodyGyro.P = 1e4
-            bodyGyro.D = 1e3
-            bodyGyro.Parent = hrp
-            
-            bodyVel = Instance.new("BodyVelocity")
-            bodyVel.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            bodyVel.Parent = hrp
-            
-            flyConn = RunService.Heartbeat:Connect(function()
-                if not Settings.FlyEnabled or not char or not hrp.Parent then
-                    safeDisconnect(flyConn)
-                    if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
-                    if bodyVel then bodyVel:Destroy() bodyVel = nil end
-                    return
-                end
-                
-                local moveDir = Vector3.new(0, 0, 0)
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir = moveDir - Vector3.new(0, 1, 0) end
-                
-                if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-                
-                bodyVel.Velocity = moveDir * Settings.FlySpeed
-                bodyGyro.CFrame = Camera.CFrame
-            end)
+            startFly()
         else
-            safeDisconnect(flyConn)
-            if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
-            if bodyVel then bodyVel:Destroy() bodyVel = nil end
+            stopFly()
         end
+    end
+})
+
+RageSection2:Input({
+    Title = "Fly Speed",
+    Default = "100",
+    Placeholder = "100",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then Settings.FlySpeed = num end
+    end
+})
+
+RageSection2:Input({
+    Title = "Max Speed",
+    Default = "1000",
+    Placeholder = "1000",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then Settings.MaxFlySpeed = num end
     end
 })
 
@@ -1079,10 +1255,9 @@ RageSection:Toggle({
     Title = "Bunny Hop",
     Default = false,
     Callback = function(value)
-        Settings.BHopEnabled = value
         if value then
             bhopConn = RunService.RenderStepped:Connect(function()
-                if not Settings.BHopEnabled or not LocalPlayer.Character then return end
+                if not LocalPlayer.Character then return end
                 
                 local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
                 if humanoid and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
@@ -1097,35 +1272,13 @@ RageSection:Toggle({
     end
 })
 
--- SPIN BOT
-local spinConn = nil
-
+-- SPIN BOT 300/SEC
 RageSection:Toggle({
-    Title = "Spin Bot",
+    Title = "Spin Bot (300/sec)",
     Default = false,
     Callback = function(value)
         Settings.SpinBotEnabled = value
-        if value then
-            spinConn = RunService.Heartbeat:Connect(function()
-                if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(Settings.SpinSpeed), 0)
-                end
-            end)
-        else
-            safeDisconnect(spinConn)
-        end
-    end
-})
-
--- FLING
-RageSection:Toggle({
-    Title = "Super Fling",
-    Default = false,
-    Callback = function(value)
-        Settings.FlingEnabled = value
-        startFling()
+        setupSpinBot()
     end
 })
 
@@ -1144,10 +1297,9 @@ CombatSection:Toggle({
     Title = "Noclip",
     Default = false,
     Callback = function(value)
-        Settings.NoclipEnabled = value
         if value then
             noclipConn = RunService.Stepped:Connect(function()
-                if not Settings.NoclipEnabled or not LocalPlayer.Character then return end
+                if not LocalPlayer.Character then return end
                 for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                     if part:IsA("BasePart") then part.CanCollide = false end
                 end
@@ -1159,12 +1311,43 @@ CombatSection:Toggle({
 })
 
 -- ANTI FLING
+local antiFlingConn = nil
+
 CombatSection:Toggle({
     Title = "Anti Fling",
     Default = false,
     Callback = function(value)
-        Settings.AntiFlingEnabled = value
-        setupAntiFling()
+        if value then
+            antiFlingConn = RunService.Heartbeat:Connect(function()
+                if not LocalPlayer.Character then return end
+                
+                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character then
+                            local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            if theirHrp then theirHrp.CanCollide = false end
+                        end
+                    end
+                    
+                    if hrp.AssemblyLinearVelocity.Magnitude > 150 then
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    end
+                    if hrp.AssemblyAngularVelocity.Magnitude > 50 then
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+            end)
+        else
+            safeDisconnect(antiFlingConn)
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local theirHrp = player.Character:FindFirstChild("HumanoidRootPart")
+                    if theirHrp then theirHrp.CanCollide = true end
+                end
+            end
+        end
     end
 })
 
@@ -1215,7 +1398,7 @@ CombatSection2:Input({
 
 -- AIMBOT
 CombatSection2:Toggle({
-    Title = "Aimbot (Murder)",
+    Title = "Aimbot (ShiftLock)",
     Default = false,
     Callback = function(value)
         Settings.AimbotEnabled = value
@@ -1241,16 +1424,30 @@ local FlingTab = Window:Tab({ Title = "Fling", Icon = "rocket" })
 local FlingSection = FlingTab:Section({ Title = "Fling Settings", Side = "Left" })
 
 FlingSection:Button({
+    Title = "Fling Target",
+    Callback = function()
+        flingTarget()
+    end
+})
+
+FlingSection:Button({
     Title = "Fling Murder",
     Callback = function()
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character and checkKnife(player) then
-                flingPlayer(player)
-                StarterGui:SetCore("SendNotification", {
-                    Title = "Fling",
-                    Text = "Murder flinged: " .. player.Name,
-                    Duration = 2
-                })
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.AssemblyLinearVelocity = Vector3.new(
+                        math.random(-999, 999),
+                        math.random(500, 999),
+                        math.random(-999, 999)
+                    )
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "Fling",
+                        Text = "Murder flinged: " .. player.Name,
+                        Duration = 2
+                    })
+                end
             end
         end
     end
@@ -1261,12 +1458,19 @@ FlingSection:Button({
     Callback = function()
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character and checkGun(player) then
-                flingPlayer(player)
-                StarterGui:SetCore("SendNotification", {
-                    Title = "Fling",
-                    Text = "Sheriff flinged: " .. player.Name,
-                    Duration = 2
-                })
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.AssemblyLinearVelocity = Vector3.new(
+                        math.random(-999, 999),
+                        math.random(500, 999),
+                        math.random(-999, 999)
+                    )
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "Fling",
+                        Text = "Sheriff flinged: " .. player.Name,
+                        Duration = 2
+                    })
+                end
             end
         end
     end
@@ -1277,7 +1481,14 @@ FlingSection:Button({
     Callback = function()
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character then
-                flingPlayer(player)
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.AssemblyLinearVelocity = Vector3.new(
+                        math.random(-999, 999),
+                        math.random(500, 999),
+                        math.random(-999, 999)
+                    )
+                end
             end
         end
         StarterGui:SetCore("SendNotification", {Title = "Fling", Text = "All flinged!", Duration = 2})
@@ -1313,7 +1524,7 @@ VisualSection:Toggle({
 
 -- CHAMS
 VisualSection:Toggle({
-    Title = "Chams (Purple)",
+    Title = "Chams (Neon)",
     Default = false,
     Callback = function(v) Settings.ChamsEnabled = v startMainUpdate() end
 })
@@ -1346,7 +1557,6 @@ VisualSection2:Toggle({
     Title = "Crosshair",
     Default = false,
     Callback = function(v) 
-        Settings.CrosshairEnabled = v 
         if v then
             createCrosshair()
         else
@@ -1360,7 +1570,7 @@ VisualSection2:Toggle({
 -- ========================================
 
 local ParticlesTab = Window:Tab({ Title = "Particles", Icon = "cloud" })
-local ParticlesSection = ParticlesTab:Section({ Title = "Particles (100шт / 50м)", Side = "Left" })
+local ParticlesSection = ParticlesTab:Section({ Title = "Particles", Side = "Left" })
 
 ParticlesSection:Toggle({
     Title = "Particles",
@@ -1452,9 +1662,25 @@ AntiAFKSection:Toggle({
     end
 })
 
-AntiAFKSection:Label({
-    Title = "Anti-AFK Status",
-    Description = Settings.AntiAFKEnabled and "🟢 ACTIVE" or "🔴 INACTIVE",
+-- ========================================
+-- ===== AUTO JUMP BOMB TAB =====
+-- ========================================
+
+local JumpBombTab = Window:Tab({ Title = "Auto Jump", Icon = "bomb" })
+local JumpBombSection = JumpBombTab:Section({ Title = "Auto Jump Bomb", Side = "Left" })
+
+JumpBombSection:Toggle({
+    Title = "Auto Jump Bomb",
+    Default = false,
+    Callback = function(v)
+        Settings.AutoJumpBombEnabled = v
+        setupAutoJumpBomb()
+    end
+})
+
+JumpBombSection:Label({
+    Title = "Controls",
+    Description = "Button: JUMP | Key: R",
     Icon = "info"
 })
 
@@ -1485,8 +1711,8 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v8.0",
-    Description = "Complete Edition",
+    Title = "PlantHub",
+    Description = "By MMV and MM2",
     Icon = "crown"
 })
 
@@ -1528,20 +1754,16 @@ LocalPlayer.CharacterAdded:Connect(function()
     if Settings.JumpCircles then
         setupJumpTracking()
     end
-    
-    if Settings.FlyEnabled then
-        Settings.FlyEnabled = false
-        task.wait(0.2)
-        Settings.FlyEnabled = true
-    end
 end)
 
 startMainUpdate()
 setupJumpTracking()
+setupSheriffDeadNotif()
 
-print("✅ Murder Hub v8.0 Complete Edition Loaded!")
+print("✅ PlantHub Loaded!")
 StarterGui:SetCore("SendNotification", {
-    Title = "Murder Hub",
-    Text = "✅ v8.0 Complete Edition!",
-    Duration = 5
+    Title = "Welcome",
+    Text = "PlantHub | By MMV and MM2",
+    Duration = 5,
+    Icon = "rbxasset://textures/face.png"
 })
