@@ -8,7 +8,7 @@ WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
 
 local Window = WindUI:CreateWindow({
-    Title = "PlantHub",
+    Title = "PlanetHub",
     Author = "MMV and MM2",
     Icon = "crown",
     Folder = "PlantHubSettings",
@@ -324,7 +324,7 @@ local function setupRGBHumanoid()
 end
 
 -- ========================================
--- ===== NIMB (ОРЕОЛ) =====
+-- ===== NIMB (3D КОЛЬЦО НАД ГОЛОВОЙ) =====
 -- ========================================
 
 local function setupNimb()
@@ -334,30 +334,43 @@ local function setupNimb()
         local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
         
+        -- УДАЛЯЕМ СТАРЫЙ НИМБ
         if Cache.NimbPart then
             pcall(function() Cache.NimbPart:Destroy() end)
+            Cache.NimbPart = nil
         end
         
+        -- СОЗДАЁМ 3D КОЛЬЦО
         local nimb = Instance.new("Part")
         nimb.Name = "Nimb"
-        nimb.Shape = Enum.PartType.Ball
-        nimb.Size = Vector3.new(5, 5, 5)
+        nimb.Shape = Enum.PartType.Cylinder
+        nimb.Size = Vector3.new(5, 0.2, 5)  -- ТОНКОЕ КОЛЬЦО
         nimb.Material = Enum.Material.Neon
         nimb.Color = COLORS.Purple
-        nimb.Transparency = 0.5
+        nimb.Transparency = 0.3
         nimb.CanCollide = false
-        nimb.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
+        nimb.Anchored = false
         nimb.TopSurface = Enum.SurfaceType.Smooth
         nimb.BottomSurface = Enum.SurfaceType.Smooth
+        
+        -- СТАВИМ НАД ГОЛОВОЙ
+        local head = LocalPlayer.Character:FindFirstChild("Head")
+        if head then
+            nimb.CFrame = head.CFrame + Vector3.new(0, 1.5, 0)
+        else
+            nimb.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
+        end
         nimb.Parent = LocalPlayer.Character
         
+        -- ПРИВАРИВАЕМ К ГОЛОВЕ
         local weld = Instance.new("WeldConstraint")
         weld.Part0 = nimb
-        weld.Part1 = hrp
+        weld.Part1 = head or hrp
         weld.Parent = nimb
         
         Cache.NimbPart = nimb
         
+        -- ОБНОВЛЕНИЕ ЦВЕТА
         safeDisconnect(Cache.NimbConnection)
         Cache.NimbConnection = RunService.Heartbeat:Connect(function()
             if not Settings.NimbEnabled or not Cache.NimbPart or not Cache.NimbPart.Parent then
@@ -368,7 +381,6 @@ local function setupNimb()
             
             local t = tick()
             Cache.NimbPart.Color = Color3.fromHSV(t % 1, 1, 1)
-            Cache.NimbPart.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
         end)
     else
         safeDisconnect(Cache.NimbConnection)
@@ -983,7 +995,7 @@ local function stopFly()
 end
 
 -- ========================================
--- ===== SPIN BOT (НОРМАЛЬНЫЙ, БЕЗ ОСТАНОВКИ) =====
+-- ===== SPIN BOT (300° В СЕКУНДУ) =====
 -- ========================================
 
 local spinConnection = nil
@@ -994,7 +1006,8 @@ local function setupSpinBot()
             if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(10), 0)
+                -- 300° В СЕКУНДУ (0.3 РАДИАНА ЗА ХАРТБИТ ~ 60 FPS)
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, 0.3, 0)
             end
         end)
     else
@@ -1243,7 +1256,7 @@ RageSection:Toggle({
     end
 })
 
--- SPIN BOT
+-- SPIN BOT (300° В СЕКУНДУ)
 RageSection:Toggle({
     Title = "Spin Bot",
     Default = false,
@@ -1540,7 +1553,7 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Nimb",
+    Title = "Nimb (3D Ring)",
     Default = false,
     Callback = function(v)
         Settings.NimbEnabled = v
