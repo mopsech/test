@@ -1,5 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v3.0 ULTIMATE =====
+-- ===== PLANT HUB v3.0 ULTIMATE+ =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -35,9 +35,9 @@ local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ========================================
 -- ===== НАСТРОЙКИ =====
@@ -76,6 +76,8 @@ local Settings = {
     VignetteEnabled = false,
     CustomSkyId = "",
     KillAllEnabled = false,
+    AimFOVEnabled = false,
+    AimFOVRadius = 65,
 }
 
 -- ========================================
@@ -100,6 +102,9 @@ local Cache = {
     TrailAttachments = {},
     KillAllConnection = nil,
     Knife = nil,
+    FOVCircle = nil,
+    AimTarget = nil,
+    LastAimTime = 0,
 }
 
 local COLORS = {
@@ -109,6 +114,51 @@ local COLORS = {
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
 }
+
+-- ========================================
+-- ===== ЗАГОТОВКИ НЕБА =====
+-- ========================================
+
+local SkyPresets = {
+    ["Добрый хомяк"] = {
+        Bk = "rbxassetid://135457808082953",
+        Dn = "rbxassetid://135457808082953",
+        Ft = "rbxassetid://135457808082953",
+        Lf = "rbxassetid://135457808082953",
+        Rt = "rbxassetid://135457808082953",
+        Up = "rbxassetid://135457808082953",
+    },
+    ["Ночные тучи"] = {
+        Bk = "rbxassetid://100140210065251",
+        Dn = "rbxassetid://100140210065251",
+        Ft = "rbxassetid://100140210065251",
+        Lf = "rbxassetid://100140210065251",
+        Rt = "rbxassetid://100140210065251",
+        Up = "rbxassetid://100140210065251",
+    },
+    ["Космос"] = {
+        Bk = "rbxassetid://97059048850342",
+        Dn = "rbxassetid://97059048850342",
+        Ft = "rbxassetid://97059048850342",
+        Lf = "rbxassetid://97059048850342",
+        Rt = "rbxassetid://97059048850342",
+        Up = "rbxassetid://97059048850342",
+    },
+}
+
+local function applySkyPreset(preset)
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    sky.SkyboxBk = preset.Bk
+    sky.SkyboxDn = preset.Dn
+    sky.SkyboxFt = preset.Ft
+    sky.SkyboxLf = preset.Lf
+    sky.SkyboxRt = preset.Rt
+    sky.SkyboxUp = preset.Up
+end
 
 -- ========================================
 -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
@@ -242,6 +292,20 @@ local function clearAllChams()
 end
 
 -- ========================================
+-- ===== CHAMS АВТООБНОВЛЕНИЕ ПОСЛЕ РЕСЕТА =====
+-- ========================================
+
+local function reapplyAllChams()
+    if not Settings.ChamsEnabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character then
+            cacheCharacterParts(player)
+            applyChams(player)
+        end
+    end
+end
+
+-- ========================================
 -- ===== ESP =====
 -- ========================================
 
@@ -278,7 +342,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== TRACERS (НА HEAD) =====
+-- ===== TRACERS (НА ТЕЛО) =====
 -- ========================================
 
 local function createTracer(player)
@@ -302,13 +366,13 @@ local function updateTracers()
             continue
         end
 
-        local head = player.Character:FindFirstChild("Head")
-        if not head then
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
             line.Visible = false
             continue
         end
 
-        local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
         if not onScreen or screenPos.Z < 0 then
             line.Visible = false
             continue
@@ -330,7 +394,231 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ ПОСЛЕ СМЕРТИ) =====
+-- ===== FOV AIM (С ПРЕДИКТОМ 0.5 СЕК) =====
+-- ========================================
+
+-- Рисуем кольцо FOV
+local function createFOVCircle()
+    if Cache.FOVCircle then
+        Cache.FOVCircle:Remove()
+        Cache.FOVCircle = nil
+    end
+
+    if not Settings.AimFOVEnabled then return end
+
+    local circle = Drawing.new("Circle")
+    circle.Radius = Settings.AimFOVRadius
+    circle.Thickness = 2
+    circle.Color = Color3.fromRGB(255, 255, 255)
+    circle.Transparency = 0.5
+    circle.NumSides = 32
+    circle.Filled = false
+    circle.Visible = true
+    circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    Cache.FOVCircle = circle
+end
+
+-- Обновляем кольцо при изменении размера окна
+local function updateFOVCircle()
+    if Cache.FOVCircle then
+        Cache.FOVCircle.Radius = Settings.AimFOVRadius
+        Cache.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    end
+end
+
+-- Основная логика Aim с предиктом
+local function updateAim()
+    if not Settings.AimFOVEnabled then
+        if Cache.FOVCircle then
+            Cache.FOVCircle:Remove()
+            Cache.FOVCircle = nil
+        end
+        return
+    end
+
+    -- Создаём кольцо если его нет
+    if not Cache.FOVCircle then
+        createFOVCircle()
+    end
+
+    -- Проверяем, есть ли у нас пистолет
+    local hasGun = checkGun(LocalPlayer)
+    if not hasGun then
+        Cache.AimTarget = nil
+        return
+    end
+
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local closestMurder = nil
+    local closestDist = Settings.AimFOVRadius
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer or not player.Character then continue end
+        local role = getRole(player)
+        if role ~= "Murder" then continue end
+
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        -- Получаем позицию на экране
+        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen or screenPos.Z < 0 then continue end
+
+        local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+        local dist = (center - screenVec).Magnitude
+
+        if dist < closestDist then
+            -- === ПРЕДИКТ НА 0.5 СЕКУНДЫ ===
+            local velocity = hrp.AssemblyLinearVelocity
+            local predictedPos = hrp.Position + (velocity * 0.5)
+
+            -- Проверяем, что предсказанная позиция в пределах FOV
+            local predScreen, predOnScreen = Camera:WorldToScreenPoint(predictedPos)
+            if predOnScreen and predScreen.Z > 0 then
+                local predVec = Vector2.new(predScreen.X, predScreen.Y)
+                local predDist = (center - predVec).Magnitude
+                if predDist < closestDist then
+                    closestDist = predDist
+                    closestMurder = {player = player, predictedPos = predictedPos, screenPos = predVec}
+                end
+            end
+        end
+    end
+
+    -- Наводимся на цель
+    if closestMurder then
+        Cache.AimTarget = closestMurder.player
+        -- Наводим камеру на предсказанную позицию
+        local targetPos = closestMurder.predictedPos
+        local currentCamPos = Camera.CFrame.Position
+        local lookVector = (targetPos - currentCamPos).Unit
+        local targetCFrame = CFrame.lookAt(currentCamPos, currentCamPos + lookVector)
+        Camera.CFrame = targetCFrame
+    else
+        Cache.AimTarget = nil
+    end
+end
+
+-- ========================================
+-- ===== KILL ALL (FIXED) =====
+-- ========================================
+
+local function getKnife()
+    if not LocalPlayer.Character then return nil end
+    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+            return item
+        end
+    end
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+local function equipKnife()
+    local knife = getKnife()
+    if knife then
+        LocalPlayer.Character.Humanoid:EquipTool(knife)
+        return knife
+    end
+    return nil
+end
+
+local function killAllPlayers()
+    local knife = equipKnife()
+    if not knife then
+        StarterGui:SetCore("SendNotification", {
+            Title = "Kill All",
+            Text = "❌ Нож не найден!",
+            Duration = 2
+        })
+        return
+    end
+
+    local targets = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(targets, player)
+        end
+    end
+
+    if #targets == 0 then
+        StarterGui:SetCore("SendNotification", {
+            Title = "Kill All",
+            Text = "❌ Нет игроков для убийства!",
+            Duration = 2
+        })
+        return
+    end
+
+    StarterGui:SetCore("SendNotification", {
+        Title = "Kill All",
+        Text = "🔪 Убиваем " .. #targets .. " игроков...",
+        Duration = 2
+    })
+
+    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Ищем RemoteEvent для атаки
+    local remote = nil
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("RemoteEvent") and obj.Name:lower():find("attack") then
+            remote = obj
+            break
+        end
+    end
+
+    for _, target in ipairs(targets) do
+        if not target.Character then continue end
+        local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHrp then continue end
+
+        -- Телепортируемся к игроку
+        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 2)
+
+        -- Пытаемся убить через RemoteEvent
+        if remote then
+            pcall(function()
+                remote:FireServer(target.Character)
+            end)
+        end
+
+        -- Через ЛКМ
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        task.wait(0.1)
+
+        -- Если не убило - повторяем
+        if target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 then
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        end
+
+        task.wait(0.3)
+    end
+
+    StarterGui:SetCore("SendNotification", {
+        Title = "Kill All",
+        Text = "✅ Все убиты!",
+        Duration = 2
+    })
+end
+
+-- ========================================
+-- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ) =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -339,8 +627,7 @@ local function createLocalPlayerTrail()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- Если трейл уже есть - не создаём новый
-    if Cache.TrailAttachments["trail"] and Cache.TrailAttachments["trail"].Parent then
+    if Cache.TrailAttachments.trail and Cache.TrailAttachments.trail.Parent then
         return
     end
 
@@ -387,7 +674,7 @@ local function removeLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== SHADERS (ВЕРНУЛ) =====
+-- ===== SHADERS =====
 -- ========================================
 
 local function setupBloom(enabled)
@@ -433,26 +720,6 @@ local function setupVignette(enabled)
             Cache.PostEffects["vignette"] = nil
         end
     end
-end
-
-local function setupSky(skyId)
-    if skyId == "" then return end
-    local sky = Lighting:FindFirstChildOfClass("Sky")
-    if not sky then
-        sky = Instance.new("Sky")
-        sky.Parent = Lighting
-    end
-    if not skyId:find("rbxassetid://") then
-        skyId = "rbxassetid://" .. skyId
-    end
-    pcall(function()
-        sky.SkyboxBk = skyId
-        sky.SkyboxDn = skyId
-        sky.SkyboxFt = skyId
-        sky.SkyboxLf = skyId
-        sky.SkyboxRt = skyId
-        sky.SkyboxUp = skyId
-    end)
 end
 
 -- ========================================
@@ -641,106 +908,6 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== KILL ALL (ДЛЯ MURDER) =====
--- ========================================
-
-local function getKnife()
-    if not LocalPlayer.Character then return nil end
-    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
-        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
-            return item
-        end
-    end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, item in ipairs(backpack:GetChildren()) do
-            if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
-                return item
-            end
-        end
-    end
-    return nil
-end
-
-local function equipKnife()
-    local knife = getKnife()
-    if knife then
-        LocalPlayer.Character.Humanoid:EquipTool(knife)
-        return knife
-    end
-    return nil
-end
-
-local function killAllPlayers()
-    if not Settings.KillAllEnabled then return end
-    
-    local knife = equipKnife()
-    if not knife then
-        StarterGui:SetCore("SendNotification", {
-            Title = "Kill All",
-            Text = "❌ Нож не найден!",
-            Duration = 2
-        })
-        return
-    end
-
-    local targets = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            table.insert(targets, player)
-        end
-    end
-
-    if #targets == 0 then
-        StarterGui:SetCore("SendNotification", {
-            Title = "Kill All",
-            Text = "❌ Нет игроков для убийства!",
-            Duration = 2
-        })
-        return
-    end
-
-    StarterGui:SetCore("SendNotification", {
-        Title = "Kill All",
-        Text = "🔪 Убиваем " .. #targets .. " игроков...",
-        Duration = 2
-    })
-
-    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    for _, target in ipairs(targets) do
-        if not target.Character then continue end
-        local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
-        if not targetHrp then continue end
-
-        -- Телепортируемся к игроку
-        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 2)
-
-        -- Жмём ЛКМ (удар ножом)
-        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
-        task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
-        task.wait(0.1)
-
-        -- Если не убило - повторяем
-        if target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 then
-            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
-        end
-
-        task.wait(0.3)
-    end
-
-    StarterGui:SetCore("SendNotification", {
-        Title = "Kill All",
-        Text = "✅ Все убиты!",
-        Duration = 2
-    })
-end
-
--- ========================================
 -- ===== ANTI-AFK =====
 -- ========================================
 
@@ -768,7 +935,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM + АВТОРЕСПАВН (FIXED) =====
+-- ===== AUTO FARM + АВТОРЕСПАВН =====
 -- ========================================
 
 local function getCoinBag()
@@ -901,7 +1068,6 @@ local function autoRespawn()
     if not Settings.AutoRespawn then return end
     local coinBag = getCurrentCoins()
     if coinBag >= Settings.AutoFarmCoinLimit then
-        -- Ищем кнопку респавна
         local mainGui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
         if mainGui then
             local gameGui = mainGui:FindFirstChild("Game")
@@ -923,7 +1089,6 @@ local function autoRespawn()
                 end
             end
         end
-        -- Если не нашли кнопку - просто отправляем запрос на респавн
         pcall(function()
             LocalPlayer.Character.Humanoid.Health = 0
         end)
@@ -944,7 +1109,7 @@ local function farmLoop()
         if currentCoins >= Settings.AutoFarmCoinLimit then
             if Settings.AutoRespawn then
                 autoRespawn()
-                task.wait(5) -- Даём время на респавн
+                task.wait(5)
                 continue
             else
                 Settings.AutoFarmEnabled = false
@@ -1297,6 +1462,17 @@ local function updateVisuals()
     else
         removeLocalPlayerTrail()
     end
+
+    -- Обновляем Aim
+    if Settings.AimFOVEnabled then
+        updateAim()
+        updateFOVCircle()
+    else
+        if Cache.FOVCircle then
+            Cache.FOVCircle:Remove()
+            Cache.FOVCircle = nil
+        end
+    end
 end
 
 local function startMainUpdate()
@@ -1304,7 +1480,8 @@ local function startMainUpdate()
 
     mainUpdateConnection = RunService.Heartbeat:Connect(function()
         local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or
-                          Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
+                          Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled or
+                          Settings.AimFOVEnabled
 
         if anyActive then
             updateVisuals()
@@ -1648,7 +1825,7 @@ CombatSection:Button({
 })
 
 CombatSection:Button({
-    Title = "🔪 Kill All (Murder Only)",
+    Title = "🔪 Kill All (Murder Only) - FIXED",
     Callback = function()
         killAllPlayers()
     end
@@ -1677,6 +1854,7 @@ CombatSection2:Input({
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
 local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
+local VisualSection3 = VisualTab:Section({ Title = "Aim", Side = "Right" })
 
 VisualSection:Toggle({
     Title = "ESP Murder",
@@ -1702,9 +1880,7 @@ VisualSection:Toggle({
     Callback = function(v)
         Settings.ChamsEnabled = v
         if v then
-            for _, player in ipairs(Players:GetPlayers()) do
-                cacheCharacterParts(player)
-            end
+            reapplyAllChams()
         else
             clearAllChams()
         end
@@ -1729,7 +1905,7 @@ VisualSection:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Tracers (Lines to Head)",
+    Title = "Tracers (Body)",
     Default = false,
     Callback = function(v)
         Settings.TracersEnabled = v
@@ -1807,8 +1983,45 @@ VisualSection2:Toggle({
     end
 })
 
+-- AIM секция
+VisualSection3:Toggle({
+    Title = "FOV Aim (Auto Aim on Murder)",
+    Default = false,
+    Callback = function(v)
+        Settings.AimFOVEnabled = v
+        if v then
+            createFOVCircle()
+        else
+            if Cache.FOVCircle then
+                Cache.FOVCircle:Remove()
+                Cache.FOVCircle = nil
+            end
+        end
+        startMainUpdate()
+    end
+})
+
+VisualSection3:Input({
+    Title = "FOV Radius",
+    Default = "65",
+    Placeholder = "65",
+    Callback = function(v)
+        local num = tonumber(v)
+        if num then
+            Settings.AimFOVRadius = num
+            updateFOVCircle()
+        end
+    end
+})
+
+VisualSection3:Label({
+    Title = "⚡ Pre-diction: 0.5 sec",
+    Description = "Aim leads target automatically",
+    Icon = "target"
+})
+
 -- ========================================
--- ===== SHADERS TAB (ВЕРНУЛ) =====
+-- ===== SHADERS TAB =====
 -- ========================================
 
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
@@ -1842,29 +2055,66 @@ ShadersSection:Toggle({
 })
 
 -- ========================================
--- ===== SKY TAB =====
+-- ===== SKY TAB (С ЗАГОТОВКАМИ) =====
 -- ========================================
 
 local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
-local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
+local SkySection = SkyTab:Section({ Title = "Sky Presets", Side = "Left" })
+local SkySection2 = SkyTab:Section({ Title = "Custom Sky", Side = "Right" })
 
-SkySection:Input({
-    Title = "Sky ID",
+SkySection:Button({
+    Title = "🌤 Добрый хомяк",
+    Callback = function()
+        applySkyPreset(SkyPresets["Добрый хомяк"])
+        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Добрый хомяк applied!", Duration = 2})
+    end
+})
+
+SkySection:Button({
+    Title = "🌙 Ночные тучи",
+    Callback = function()
+        applySkyPreset(SkyPresets["Ночные тучи"])
+        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Ночные тучи applied!", Duration = 2})
+    end
+})
+
+SkySection:Button({
+    Title = "🚀 Космос",
+    Callback = function()
+        applySkyPreset(SkyPresets["Космос"])
+        StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Космос applied!", Duration = 2})
+    end
+})
+
+SkySection2:Input({
+    Title = "Custom Sky ID",
     Default = "",
     Placeholder = "rbxassetid://...",
     Callback = function(v) Settings.CustomSkyId = v end
 })
 
-SkySection:Button({
-    Title = "Apply Sky",
+SkySection2:Button({
+    Title = "Apply Custom Sky",
     Callback = function()
         if Settings.CustomSkyId ~= "" then
-            setupSky(Settings.CustomSkyId)
-            StarterGui:SetCore("SendNotification", {
-                Title = "Sky",
-                Text = "Sky applied!",
-                Duration = 2
-            })
+            local sky = Lighting:FindFirstChildOfClass("Sky")
+            if not sky then
+                sky = Instance.new("Sky")
+                sky.Parent = Lighting
+            end
+            local id = Settings.CustomSkyId
+            if not id:find("rbxassetid://") then
+                id = "rbxassetid://" .. id
+            end
+            pcall(function()
+                sky.SkyboxBk = id
+                sky.SkyboxDn = id
+                sky.SkyboxFt = id
+                sky.SkyboxLf = id
+                sky.SkyboxRt = id
+                sky.SkyboxUp = id
+            end)
+            StarterGui:SetCore("SendNotification", {Title = "Sky", Text = "Custom sky applied!", Duration = 2})
         end
     end
 })
@@ -1884,7 +2134,7 @@ AutoFarmSection:Toggle({
 })
 
 AutoFarmSection:Toggle({
-    Title = "Auto Respawn (Full Bag) - FIXED",
+    Title = "Auto Respawn (Full Bag)",
     Default = false,
     Callback = function(v)
         Settings.AutoRespawn = v
@@ -1961,12 +2211,18 @@ local function updatePlayerInfo()
             Icon = "heart"
         })
 
-        -- Показываем, есть ли нож
         local hasKnife = getKnife() ~= nil
         ProfileSection:Label({
             Title = "Knife: " .. (hasKnife and "✅ Yes" or "❌ No"),
             Description = hasKnife and "Ready to kill!" or "Find a knife!",
             Icon = "sword"
+        })
+
+        local hasGun = checkGun(LocalPlayer)
+        ProfileSection:Label({
+            Title = "Gun: " .. (hasGun and "✅ Yes" or "❌ No"),
+            Description = hasGun and "Aim ready!" or "Find a gun!",
+            Icon = "crosshair"
         })
     end)
 end
@@ -1990,7 +2246,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlanetHub v3.0 ULTIMATE",
+    Title = "PlanetHub v3.0 ULTIMATE+",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -2009,14 +2265,13 @@ SettingsSection:Button({
 })
 
 -- ========================================
--- ===== АВТООБНОВЛЕНИЕ ESP (НОВЫЕ ИГРОКИ) =====
+-- ===== АВТООБНОВЛЕНИЕ ESP =====
 -- ========================================
 
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
-        
-        -- Автоматически применяем настройки к новому игроку
+
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
         end
@@ -2111,15 +2366,19 @@ LocalPlayer.CharacterAdded:Connect(function()
     if Settings.CrosshairEnabled then
         createCrosshair()
     end
+
+    if Settings.AimFOVEnabled then
+        createFOVCircle()
+    end
 end)
 
 startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlanetHub v3.0 ULTIMATE Loaded!")
+print("✅ PlanetHub v3.0 ULTIMATE+ Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v3.0 | Shaders + Kill All + Auto Update",
+    Text = "PlanetHub v3.0 | FOV Aim + Sky Presets + Kill All Fixed",
     Duration = 5
 })
