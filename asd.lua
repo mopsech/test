@@ -1,5 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v3.0 FINAL =====
+-- ===== PLANT HUB v3.0 ULTIMATE =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -37,6 +37,7 @@ local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ========================================
 -- ===== НАСТРОЙКИ =====
@@ -50,7 +51,6 @@ local Settings = {
     ChamsEnabled = false,
     JumpCircles = false,
     Trails = false,
-    ParticlesEnabled = false,
     RGBHumanoid = false,
     XRayEnabled = false,
     CrosshairEnabled = false,
@@ -71,6 +71,11 @@ local Settings = {
     AutoFarmCoinDelay = 0.15,
     AutoRespawn = false,
     TracersEnabled = false,
+    BloomEnabled = false,
+    ColorCorrectionEnabled = false,
+    VignetteEnabled = false,
+    CustomSkyId = "",
+    KillAllEnabled = false,
 }
 
 -- ========================================
@@ -85,7 +90,6 @@ local Cache = {
     Connections = {},
     ChamsParts = {},
     ChamsPartsList = {},
-    Particles = {},
     PostEffects = {},
     JumpTracking = {},
     RGBConnection = nil,
@@ -93,6 +97,9 @@ local Cache = {
     CurrentTween = nil,
     XRayParts = {},
     Tracers = {},
+    TrailAttachments = {},
+    KillAllConnection = nil,
+    Knife = nil,
 }
 
 local COLORS = {
@@ -163,59 +170,6 @@ local function getRoleColor(player)
 end
 
 -- ========================================
--- ===== TRACERS (ЛИНИИ К ИГРОКАМ) =====
--- ========================================
-
-local function createTracer(player)
-    if not player or player == LocalPlayer then return end
-    if Cache.Tracers[player.UserId] then return end
-
-    local line = Drawing.new("Line")
-    line.Thickness = 2
-    line.Transparency = 0.8
-    line.Visible = false
-    line.Color = getRoleColor(player)
-
-    Cache.Tracers[player.UserId] = line
-end
-
-local function updateTracers()
-    for userId, line in pairs(Cache.Tracers) do
-        local player = Players:GetPlayerByUserId(userId)
-        if not player or not player.Character or not Settings.TracersEnabled then
-            line.Visible = false
-            continue
-        end
-
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            line.Visible = false
-            continue
-        end
-
-        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or screenPos.Z < 0 then
-            line.Visible = false
-            continue
-        end
-
-        -- Линия от нижней части экрана к игроку
-        local bottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-        line.From = bottom
-        line.To = Vector2.new(screenPos.X, screenPos.Y)
-        line.Visible = true
-        line.Color = getRoleColor(player)
-    end
-end
-
-local function clearAllTracers()
-    for userId, line in pairs(Cache.Tracers) do
-        pcall(function() line:Remove() end)
-    end
-    Cache.Tracers = {}
-end
-
--- ========================================
 -- ===== CHAMS (ФИОЛЕТОВЫЕ ЧЕРЕЗ СТЕНЫ) =====
 -- ========================================
 
@@ -248,7 +202,7 @@ local function applyChams(player)
             part.Material = Enum.Material.ForceField
             part.Color = COLORS.Purple
             part.Transparency = 0.15
-            part.LocalTransparencyModifier = 0 -- ВИДНЫ ЧЕРЕЗ СТЕНЫ
+            part.LocalTransparencyModifier = 0
         end
     end
 end
@@ -288,7 +242,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== HIGHLIGHT ESP =====
+-- ===== ESP =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
@@ -321,6 +275,239 @@ local function clearAllHighlights()
         if highlight then pcall(function() highlight:Destroy() end) end
     end
     Cache.Highlights = {}
+end
+
+-- ========================================
+-- ===== TRACERS (НА HEAD) =====
+-- ========================================
+
+local function createTracer(player)
+    if not player or player == LocalPlayer then return end
+    if Cache.Tracers[player.UserId] then return end
+
+    local line = Drawing.new("Line")
+    line.Thickness = 2
+    line.Transparency = 0.8
+    line.Visible = false
+    line.Color = getRoleColor(player)
+
+    Cache.Tracers[player.UserId] = line
+end
+
+local function updateTracers()
+    for userId, line in pairs(Cache.Tracers) do
+        local player = Players:GetPlayerByUserId(userId)
+        if not player or not player.Character or not Settings.TracersEnabled then
+            line.Visible = false
+            continue
+        end
+
+        local head = player.Character:FindFirstChild("Head")
+        if not head then
+            line.Visible = false
+            continue
+        end
+
+        local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+        if not onScreen or screenPos.Z < 0 then
+            line.Visible = false
+            continue
+        end
+
+        local bottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+        line.From = bottom
+        line.To = Vector2.new(screenPos.X, screenPos.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
+    end
+end
+
+local function clearAllTracers()
+    for userId, line in pairs(Cache.Tracers) do
+        pcall(function() line:Remove() end)
+    end
+    Cache.Tracers = {}
+end
+
+-- ========================================
+-- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ ПОСЛЕ СМЕРТИ) =====
+-- ========================================
+
+local function createLocalPlayerTrail()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Если трейл уже есть - не создаём новый
+    if Cache.TrailAttachments["trail"] and Cache.TrailAttachments["trail"].Parent then
+        return
+    end
+
+    local att1 = Instance.new("Attachment")
+    att1.Name = "TrailAtt1"
+    att1.Parent = hrp
+    att1.Position = Vector3.new(-1, 0, 0)
+
+    local att2 = Instance.new("Attachment")
+    att2.Name = "TrailAtt2"
+    att2.Parent = hrp
+    att2.Position = Vector3.new(1, 0, 0)
+
+    local trail = Instance.new("Trail")
+    trail.Name = "LocalTrail"
+    trail.Attachment0 = att1
+    trail.Attachment1 = att2
+    trail.Lifetime = 0.8
+    trail.MinLength = 0
+    trail.FaceCamera = true
+    trail.LightEmission = 1
+    trail.LightInfluence = 0
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    trail.Color = ColorSequence.new(COLORS.Purple)
+    trail.Parent = hrp
+
+    Cache.TrailAttachments = {trail = trail, att1 = att1, att2 = att2}
+end
+
+local function removeLocalPlayerTrail()
+    if Cache.TrailAttachments.trail then
+        pcall(function() Cache.TrailAttachments.trail:Destroy() end)
+    end
+    if Cache.TrailAttachments.att1 then
+        pcall(function() Cache.TrailAttachments.att1:Destroy() end)
+    end
+    if Cache.TrailAttachments.att2 then
+        pcall(function() Cache.TrailAttachments.att2:Destroy() end)
+    end
+    Cache.TrailAttachments = {}
+end
+
+-- ========================================
+-- ===== SHADERS (ВЕРНУЛ) =====
+-- ========================================
+
+local function setupBloom(enabled)
+    if enabled then
+        Lighting.Brightness = 1.5
+    else
+        Lighting.Brightness = 1
+    end
+end
+
+local function setupColorCorrection(enabled)
+    if enabled then
+        Lighting.Ambient = COLORS.Purple
+        Lighting.OutdoorAmbient = COLORS.Purple
+    else
+        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+        Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
+    end
+end
+
+local function setupVignette(enabled)
+    if enabled then
+        if not Cache.PostEffects["vignette"] then
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "VignetteEffect"
+            screenGui.ResetOnSpawn = false
+            screenGui.IgnoreGuiInset = true
+
+            local vignette = Instance.new("Frame")
+            vignette.Name = "VignetteFrame"
+            vignette.Size = UDim2.new(1, 0, 1, 0)
+            vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            vignette.BackgroundTransparency = 0.5
+            vignette.BorderSizePixel = 0
+            vignette.Parent = screenGui
+
+            screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            Cache.PostEffects["vignette"] = screenGui
+        end
+    else
+        if Cache.PostEffects["vignette"] then
+            pcall(function() Cache.PostEffects["vignette"]:Destroy() end)
+            Cache.PostEffects["vignette"] = nil
+        end
+    end
+end
+
+local function setupSky(skyId)
+    if skyId == "" then return end
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    if not skyId:find("rbxassetid://") then
+        skyId = "rbxassetid://" .. skyId
+    end
+    pcall(function()
+        sky.SkyboxBk = skyId
+        sky.SkyboxDn = skyId
+        sky.SkyboxFt = skyId
+        sky.SkyboxLf = skyId
+        sky.SkyboxRt = skyId
+        sky.SkyboxUp = skyId
+    end)
+end
+
+-- ========================================
+-- ===== CROSSHAIR (꩜) =====
+-- ========================================
+
+local crosshairGui = nil
+local shiftLockConn = nil
+
+local function createCrosshair()
+    if crosshairGui then crosshairGui:Destroy() end
+    crosshairGui = Instance.new("ScreenGui")
+    crosshairGui.Name = "Crosshair"
+    crosshairGui.ResetOnSpawn = false
+    crosshairGui.IgnoreGuiInset = true
+    crosshairGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 50, 0, 50)
+    label.Position = UDim2.new(0.5, -25, 0.5, -25)
+    label.BackgroundTransparency = 1
+    label.Text = "꩜"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeTransparency = 0.5
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Parent = crosshairGui
+
+    crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    if not Settings.CrosshairEnabled then
+        safeDisconnect(shiftLockConn)
+        return
+    end
+
+    shiftLockConn = RunService.RenderStepped:Connect(function()
+        if not Settings.CrosshairEnabled then
+            safeDisconnect(shiftLockConn)
+            shiftLockConn = nil
+            return
+        end
+        local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
+        if shiftLock then
+            shiftLock.Enabled = false
+            shiftLock.ResetOnSpawn = false
+        end
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
+            if gui.Name:lower():find("crosshair") or gui.Name:lower():find("aim") then
+                if gui ~= crosshairGui then
+                    gui.Enabled = false
+                end
+            end
+        end
+    end)
 end
 
 -- ========================================
@@ -377,61 +564,6 @@ local function setupXRay()
         end
         Cache.XRayParts = {}
     end
-end
-
--- ========================================
--- ===== CROSSHAIR (꩜) =====
--- ========================================
-
-local crosshairGui = nil
-local shiftLockConn = nil
-
-local function createCrosshair()
-    if crosshairGui then crosshairGui:Destroy() end
-    crosshairGui = Instance.new("ScreenGui")
-    crosshairGui.Name = "Crosshair"
-    crosshairGui.ResetOnSpawn = false
-    crosshairGui.IgnoreGuiInset = true
-    crosshairGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 50, 0, 50)
-    label.Position = UDim2.new(0.5, -25, 0.5, -25)
-    label.BackgroundTransparency = 1
-    label.Text = "꩜"
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.TextStrokeTransparency = 0.5
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Parent = crosshairGui
-
-    crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-    if not Settings.CrosshairEnabled then
-        safeDisconnect(shiftLockConn)
-        return
-    end
-
-    shiftLockConn = RunService.RenderStepped:Connect(function()
-        if not Settings.CrosshairEnabled then
-            safeDisconnect(shiftLockConn)
-            shiftLockConn = nil
-            return
-        end
-        local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
-        if shiftLock then
-            shiftLock.Enabled = false
-            shiftLock.ResetOnSpawn = false
-        end
-        for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-            if gui.Name:lower():find("crosshair") or gui.Name:lower():find("aim") then
-                if gui ~= crosshairGui then
-                    gui.Enabled = false
-                end
-            end
-        end
-    end)
 end
 
 -- ========================================
@@ -509,49 +641,103 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== TRAILS =====
+-- ===== KILL ALL (ДЛЯ MURDER) =====
 -- ========================================
 
-local function createLocalPlayerTrail()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
+local function getKnife()
+    if not LocalPlayer.Character then return nil end
+    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+            return item
+        end
+    end
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+local function equipKnife()
+    local knife = getKnife()
+    if knife then
+        LocalPlayer.Character.Humanoid:EquipTool(knife)
+        return knife
+    end
+    return nil
+end
+
+local function killAllPlayers()
+    if not Settings.KillAllEnabled then return end
+    
+    local knife = equipKnife()
+    if not knife then
+        StarterGui:SetCore("SendNotification", {
+            Title = "Kill All",
+            Text = "❌ Нож не найден!",
+            Duration = 2
+        })
+        return
+    end
+
+    local targets = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(targets, player)
+        end
+    end
+
+    if #targets == 0 then
+        StarterGui:SetCore("SendNotification", {
+            Title = "Kill All",
+            Text = "❌ Нет игроков для убийства!",
+            Duration = 2
+        })
+        return
+    end
+
+    StarterGui:SetCore("SendNotification", {
+        Title = "Kill All",
+        Text = "🔪 Убиваем " .. #targets .. " игроков...",
+        Duration = 2
+    })
+
+    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local oldTrail = hrp:FindFirstChild("LocalTrail")
-    if oldTrail then oldTrail:Destroy() end
-    local oldAtt1 = hrp:FindFirstChild("TrailAtt1")
-    if oldAtt1 then oldAtt1:Destroy() end
-    local oldAtt2 = hrp:FindFirstChild("TrailAtt2")
-    if oldAtt2 then oldAtt2:Destroy() end
+    for _, target in ipairs(targets) do
+        if not target.Character then continue end
+        local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHrp then continue end
 
-    local att1 = Instance.new("Attachment")
-    att1.Name = "TrailAtt1"
-    att1.Parent = hrp
-    att1.Position = Vector3.new(-1, 0, 0)
+        -- Телепортируемся к игроку
+        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 2)
 
-    local att2 = Instance.new("Attachment")
-    att2.Name = "TrailAtt2"
-    att2.Parent = hrp
-    att2.Position = Vector3.new(1, 0, 0)
+        -- Жмём ЛКМ (удар ножом)
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        task.wait(0.1)
 
-    local trail = Instance.new("Trail")
-    trail.Name = "LocalTrail"
-    trail.Attachment0 = att1
-    trail.Attachment1 = att2
-    trail.Lifetime = 0.8
-    trail.MinLength = 0
-    trail.FaceCamera = true
-    trail.LightEmission = 1
-    trail.LightInfluence = 0
-    trail.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 1)
+        -- Если не убило - повторяем
+        if target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 then
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, true)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, 0, 0, false)
+        end
+
+        task.wait(0.3)
+    end
+
+    StarterGui:SetCore("SendNotification", {
+        Title = "Kill All",
+        Text = "✅ Все убиты!",
+        Duration = 2
     })
-    trail.Color = ColorSequence.new(COLORS.Purple)
-    trail.Parent = hrp
-
-    Cache.Visuals["localtrail"] = {trail = trail, att1 = att1, att2 = att2}
 end
 
 -- ========================================
@@ -582,7 +768,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM + АВТОРЕСПАВН =====
+-- ===== AUTO FARM + АВТОРЕСПАВН (FIXED) =====
 -- ========================================
 
 local function getCoinBag()
@@ -715,24 +901,35 @@ local function autoRespawn()
     if not Settings.AutoRespawn then return end
     local coinBag = getCurrentCoins()
     if coinBag >= Settings.AutoFarmCoinLimit then
-        local respawnBtn = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
-        if respawnBtn then
-            local btn = respawnBtn:FindFirstChild("Game")
-            if btn then
-                local respawn = btn:FindFirstChild("Respawn")
+        -- Ищем кнопку респавна
+        local mainGui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+        if mainGui then
+            local gameGui = mainGui:FindFirstChild("Game")
+            if gameGui then
+                local respawn = gameGui:FindFirstChild("Respawn")
                 if respawn then
-                    pcall(function()
-                        respawn:FindFirstChild("RespawnButton"):Click()
-                    end)
+                    local button = respawn:FindFirstChild("RespawnButton")
+                    if button then
+                        pcall(function()
+                            button:Click()
+                        end)
+                        StarterGui:SetCore("SendNotification", {
+                            Title = "AutoFarm",
+                            Text = "💀 Респавн! Баг полный!",
+                            Duration = 2
+                        })
+                        return true
+                    end
                 end
             end
         end
-        StarterGui:SetCore("SendNotification", {
-            Title = "AutoFarm",
-            Text = "💀 Респавн! Баг полный!",
-            Duration = 2
-        })
+        -- Если не нашли кнопку - просто отправляем запрос на респавн
+        pcall(function()
+            LocalPlayer.Character.Humanoid.Health = 0
+        end)
+        return true
     end
+    return false
 end
 
 local function farmLoop()
@@ -747,7 +944,7 @@ local function farmLoop()
         if currentCoins >= Settings.AutoFarmCoinLimit then
             if Settings.AutoRespawn then
                 autoRespawn()
-                task.wait(3)
+                task.wait(5) -- Даём время на респавн
                 continue
             else
                 Settings.AutoFarmEnabled = false
@@ -1079,7 +1276,6 @@ local function updateVisuals()
                 end
             end
 
-            -- Создаём трассеры
             if Settings.TracersEnabled then
                 if not Cache.Tracers[player.UserId] then
                     createTracer(player)
@@ -1088,7 +1284,6 @@ local function updateVisuals()
         end
     end
 
-    -- Обновляем трассеры
     if Settings.TracersEnabled then
         updateTracers()
     else
@@ -1096,20 +1291,11 @@ local function updateVisuals()
     end
 
     if Settings.Trails then
-        if LocalPlayer.Character and not LocalPlayer.Character:FindFirstChild("LocalTrail") then
+        if LocalPlayer.Character then
             createLocalPlayerTrail()
         end
     else
-        if LocalPlayer.Character then
-            local trail = LocalPlayer.Character:FindFirstChild("LocalTrail")
-            if trail then pcall(function() trail:Destroy() end) end
-            local att1 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and
-                         LocalPlayer.Character.HumanoidRootPart:FindFirstChild("TrailAtt1")
-            if att1 then att1:Destroy() end
-            local att2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and
-                         LocalPlayer.Character.HumanoidRootPart:FindFirstChild("TrailAtt2")
-            if att2 then att2:Destroy() end
-        end
+        removeLocalPlayerTrail()
     end
 end
 
@@ -1461,6 +1647,13 @@ CombatSection:Button({
     end
 })
 
+CombatSection:Button({
+    Title = "🔪 Kill All (Murder Only)",
+    Callback = function()
+        killAllPlayers()
+    end
+})
+
 CombatSection2:Toggle({
     Title = "Kill Through Wall",
     Default = false,
@@ -1536,7 +1729,7 @@ VisualSection:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Tracers (Lines to Players)",
+    Title = "Tracers (Lines to Head)",
     Default = false,
     Callback = function(v)
         Settings.TracersEnabled = v
@@ -1564,12 +1757,14 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Purple Trail",
+    Title = "Purple Trail (Persistent)",
     Default = false,
     Callback = function(v)
         Settings.Trails = v
-        if v and LocalPlayer.Character then
+        if v then
             createLocalPlayerTrail()
+        else
+            removeLocalPlayerTrail()
         end
         startMainUpdate()
     end
@@ -1612,6 +1807,68 @@ VisualSection2:Toggle({
     end
 })
 
+-- ========================================
+-- ===== SHADERS TAB (ВЕРНУЛ) =====
+-- ========================================
+
+local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
+local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
+
+ShadersSection:Toggle({
+    Title = "Bloom (Свечение)",
+    Default = false,
+    Callback = function(v)
+        Settings.BloomEnabled = v
+        setupBloom(v)
+    end
+})
+
+ShadersSection:Toggle({
+    Title = "Color Correction (Фиолетовый туман)",
+    Default = false,
+    Callback = function(v)
+        Settings.ColorCorrectionEnabled = v
+        setupColorCorrection(v)
+    end
+})
+
+ShadersSection:Toggle({
+    Title = "Vignette (Тёмные края)",
+    Default = false,
+    Callback = function(v)
+        Settings.VignetteEnabled = v
+        setupVignette(v)
+    end
+})
+
+-- ========================================
+-- ===== SKY TAB =====
+-- ========================================
+
+local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
+local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
+
+SkySection:Input({
+    Title = "Sky ID",
+    Default = "",
+    Placeholder = "rbxassetid://...",
+    Callback = function(v) Settings.CustomSkyId = v end
+})
+
+SkySection:Button({
+    Title = "Apply Sky",
+    Callback = function()
+        if Settings.CustomSkyId ~= "" then
+            setupSky(Settings.CustomSkyId)
+            StarterGui:SetCore("SendNotification", {
+                Title = "Sky",
+                Text = "Sky applied!",
+                Duration = 2
+            })
+        end
+    end
+})
+
 -- AUTO FARM TAB
 local AutoFarmTab = Window:Tab({ Title = "Auto Farm", Icon = "star" })
 local AutoFarmSection = AutoFarmTab:Section({ Title = "Farm Settings", Side = "Left" })
@@ -1627,7 +1884,7 @@ AutoFarmSection:Toggle({
 })
 
 AutoFarmSection:Toggle({
-    Title = "Auto Respawn (Full Bag)",
+    Title = "Auto Respawn (Full Bag) - FIXED",
     Default = false,
     Callback = function(v)
         Settings.AutoRespawn = v
@@ -1703,6 +1960,14 @@ local function updatePlayerInfo()
             Description = "Status: " .. (health > 0 and "✅ Alive" or "❌ Dead"),
             Icon = "heart"
         })
+
+        -- Показываем, есть ли нож
+        local hasKnife = getKnife() ~= nil
+        ProfileSection:Label({
+            Title = "Knife: " .. (hasKnife and "✅ Yes" or "❌ No"),
+            Description = hasKnife and "Ready to kill!" or "Find a knife!",
+            Icon = "sword"
+        })
     end)
 end
 
@@ -1725,7 +1990,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlanetHub v3.0 FINAL",
+    Title = "PlanetHub v3.0 ULTIMATE",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -1744,23 +2009,36 @@ SettingsSection:Button({
 })
 
 -- ========================================
--- ===== ИНИЦИАЛИЗАЦИЯ =====
+-- ===== АВТООБНОВЛЕНИЕ ESP (НОВЫЕ ИГРОКИ) =====
 -- ========================================
 
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
+        
+        -- Автоматически применяем настройки к новому игроку
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
         end
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
+            applyChams(player)
         end
         if Settings.JumpCircles then
             Cache.JumpTracking[player.UserId] = {wasJumping = false}
         end
         if Settings.TracersEnabled and player ~= LocalPlayer then
             createTracer(player)
+        end
+        if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
+            local role = getRole(player)
+            if Settings.MurderESP and role == "Murder" then
+                createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and role == "Sheriff" then
+                createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and role == "Innocent" then
+                createOrUpdateHighlight(player, COLORS.Innocent)
+            end
         end
     end)
 end)
@@ -1794,12 +2072,23 @@ LocalPlayer.CharacterAdded:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
+            applyChams(player)
         end
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
         end
         if Settings.TracersEnabled and player ~= LocalPlayer then
             createTracer(player)
+        end
+        if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
+            local role = getRole(player)
+            if Settings.MurderESP and role == "Murder" then
+                createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and role == "Sheriff" then
+                createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and role == "Innocent" then
+                createOrUpdateHighlight(player, COLORS.Innocent)
+            end
         end
     end
 
@@ -1828,9 +2117,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlanetHub v3.0 FINAL Loaded!")
+print("✅ PlanetHub v3.0 ULTIMATE Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v3.0 | Chams + Tracers + Crosshair",
+    Text = "PlanetHub v3.0 | Shaders + Kill All + Auto Update",
     Duration = 5
 })
