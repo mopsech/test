@@ -1036,8 +1036,7 @@ RageSection:Toggle({
             end)
         else
             if BHopConnection then BHopConnection:Disconnect() BHopConnection = nil end
-        end
-    end
+        end    end
 })
 
 -- SILENT AIM (Kill through wall)
