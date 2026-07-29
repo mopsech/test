@@ -8,7 +8,7 @@ WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
 
 local Window = WindUI:CreateWindow({
-    Title = "PlanetHub",
+    Title = "PlantHub",
     Author = "MMV and MM2",
     Icon = "crown",
     Folder = "PlantHubSettings",
@@ -30,6 +30,7 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
@@ -93,7 +94,10 @@ local Settings = {
     AntiAFKEnabled = false,
     
     -- AutoFarm
-    AutoFarmEnabled = false
+    AutoFarmEnabled = false,
+    AutoFarmSpeed = 20,
+    AutoFarmCoinLimit = 40,
+    AutoFarmCoinDelay = 0.15,
 }
 
 -- ========================================
@@ -111,7 +115,9 @@ local Cache = {
     JumpTracking = {},
     RGBConnection = nil,
     NimbConnection = nil,
-    NimbPart = nil
+    NimbPart = nil,
+    AutoFarmConnection = nil,
+    CurrentTween = nil,
 }
 
 local COLORS = {
@@ -324,7 +330,7 @@ local function setupRGBHumanoid()
 end
 
 -- ========================================
--- ===== NIMB (3D КОЛЬЦО НАД ГОЛОВОЙ) =====
+-- ===== NIMB =====
 -- ========================================
 
 local function setupNimb()
@@ -334,43 +340,30 @@ local function setupNimb()
         local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
         
-        -- УДАЛЯЕМ СТАРЫЙ НИМБ
         if Cache.NimbPart then
             pcall(function() Cache.NimbPart:Destroy() end)
-            Cache.NimbPart = nil
         end
         
-        -- СОЗДАЁМ 3D КОЛЬЦО
         local nimb = Instance.new("Part")
         nimb.Name = "Nimb"
-        nimb.Shape = Enum.PartType.Cylinder
-        nimb.Size = Vector3.new(5, 0.2, 5)  -- ТОНКОЕ КОЛЬЦО
+        nimb.Shape = Enum.PartType.Ball
+        nimb.Size = Vector3.new(5, 5, 5)
         nimb.Material = Enum.Material.Neon
         nimb.Color = COLORS.Purple
-        nimb.Transparency = 0.3
+        nimb.Transparency = 0.5
         nimb.CanCollide = false
-        nimb.Anchored = false
+        nimb.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
         nimb.TopSurface = Enum.SurfaceType.Smooth
         nimb.BottomSurface = Enum.SurfaceType.Smooth
-        
-        -- СТАВИМ НАД ГОЛОВОЙ
-        local head = LocalPlayer.Character:FindFirstChild("Head")
-        if head then
-            nimb.CFrame = head.CFrame + Vector3.new(0, 1.5, 0)
-        else
-            nimb.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
-        end
         nimb.Parent = LocalPlayer.Character
         
-        -- ПРИВАРИВАЕМ К ГОЛОВЕ
         local weld = Instance.new("WeldConstraint")
         weld.Part0 = nimb
-        weld.Part1 = head or hrp
+        weld.Part1 = hrp
         weld.Parent = nimb
         
         Cache.NimbPart = nimb
         
-        -- ОБНОВЛЕНИЕ ЦВЕТА
         safeDisconnect(Cache.NimbConnection)
         Cache.NimbConnection = RunService.Heartbeat:Connect(function()
             if not Settings.NimbEnabled or not Cache.NimbPart or not Cache.NimbPart.Parent then
@@ -381,6 +374,7 @@ local function setupNimb()
             
             local t = tick()
             Cache.NimbPart.Color = Color3.fromHSV(t % 1, 1, 1)
+            Cache.NimbPart.CFrame = hrp.CFrame + Vector3.new(0, -2.5, 0)
         end)
     else
         safeDisconnect(Cache.NimbConnection)
@@ -483,7 +477,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES (1 КРУГ) =====
+-- ===== JUMP CIRCLES =====
 -- ========================================
 
 local jumpTracking = {}
@@ -573,7 +567,7 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== TRAILS (СРАЗУ ПОСЛЕ ВКЛЮЧЕНИЯ) =====
+-- ===== TRAILS =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -922,6 +916,211 @@ local function setupAntiAFK()
 end
 
 -- ========================================
+-- ===== AUTO FARM (БЕЗ UI) =====
+-- ========================================
+
+local function getCoinBag()
+    local success, result = pcall(function()
+        return LocalPlayer.PlayerGui.MainGUI.Game.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins
+    end)
+    return success and result or nil
+end
+
+local function getCurrentCoins()
+    local coinBagGui = getCoinBag()
+    if coinBagGui then
+        local text = coinBagGui.Text
+        local num = tonumber(text)
+        return num or 0
+    end
+    return 0
+end
+
+local function getValidCoins()
+    local coins = {}
+    for _, map in pairs(Workspace:GetChildren()) do
+        local container = map:FindFirstChild("CoinContainer")
+        if container then
+            for _, coin in pairs(container:GetChildren()) do
+                if coin.Name == "Coin_Server" and coin:IsA("BasePart") then
+                    if coin:FindFirstChild("TouchInterest") then
+                        local distance = (LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position - coin.Position).Magnitude
+                        table.insert(coins, {
+                            part = coin,
+                            distance = distance
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    table.sort(coins, function(a, b)
+        return a.distance < b.distance
+    end)
+    
+    return coins
+end
+
+local function tweenToCoin(coin)
+    if not coin or not coin.Parent then return false end
+    if not coin:FindFirstChild("TouchInterest") then return false end
+    
+    local character = LocalPlayer.Character
+    if not character then return false end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not humanoid then return false end
+    
+    local targetPos = coin.Position + Vector3.new(0, 2, 0)
+    local distance = (hrp.Position - targetPos).Magnitude
+    
+    if distance < 5 then
+        return true
+    end
+    
+    local duration = distance / Settings.AutoFarmSpeed
+    
+    if Cache.CurrentTween then
+        pcall(function() Cache.CurrentTween:Cancel() end)
+    end
+    
+    Cache.CurrentTween = TweenService:Create(hrp, TweenInfo.new(
+        duration,
+        Enum.EasingStyle.Quad,
+        Enum.EasingDirection.Out
+    ), {
+        CFrame = CFrame.new(targetPos)
+    })
+    
+    humanoid.Sit = true
+    Cache.CurrentTween:Play()
+    
+    local completed = false
+    local connection
+    connection = Cache.CurrentTween.Completed:Connect(function()
+        completed = true
+        safeDisconnect(connection)
+    end)
+    
+    local startTime = tick()
+    while not completed and Settings.AutoFarmEnabled do
+        task.wait(0.1)
+        
+        if not coin or not coin.Parent or not coin:FindFirstChild("TouchInterest") then
+            if Cache.CurrentTween then
+                pcall(function() Cache.CurrentTween:Cancel() end)
+            end
+            humanoid.Sit = false
+            return false
+        end
+        
+        if tick() - startTime > 30 then
+            if Cache.CurrentTween then
+                pcall(function() Cache.CurrentTween:Cancel() end)
+            end
+            humanoid.Sit = false
+            return false
+        end
+    end
+    
+    humanoid.Sit = false
+    return completed
+end
+
+local function collectCoin(coin)
+    if not coin or not coin.Parent then return false end
+    if not coin:FindFirstChild("TouchInterest") then return false end
+    
+    local character = LocalPlayer.Character
+    if not character then return false end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    local success = pcall(function()
+        firetouchinterest(hrp, coin, 0)
+        task.wait(0.05)
+        firetouchinterest(hrp, coin, 1)
+    end)
+    
+    return success
+end
+
+local function farmLoop()
+    while Settings.AutoFarmEnabled do
+        local character = LocalPlayer.Character
+        if not character then
+            task.wait(1)
+            continue
+        end
+        
+        local currentCoins = getCurrentCoins()
+        
+        if currentCoins >= Settings.AutoFarmCoinLimit then
+            Settings.AutoFarmEnabled = false
+            StarterGui:SetCore("SendNotification", {
+                Title = "AutoFarm",
+                Text = "CoinBag полный! ✅",
+                Duration = 3
+            })
+            break
+        end
+        
+        local validCoins = getValidCoins()
+        
+        if #validCoins == 0 then
+            task.wait(2)
+        else
+            local nearestCoin = validCoins[1].part
+            
+            local success = tweenToCoin(nearestCoin)
+            
+            if success and Settings.AutoFarmEnabled then
+                collectCoin(nearestCoin)
+                task.wait(Settings.AutoFarmCoinDelay)
+            end
+        end
+        
+        task.wait(0.1)
+    end
+    
+    safeDisconnect(Cache.AutoFarmConnection)
+    Cache.AutoFarmConnection = nil
+end
+
+local function setupAutoFarm()
+    if Settings.AutoFarmEnabled then
+        if not LocalPlayer.Character then return end
+        
+        safeDisconnect(Cache.AutoFarmConnection)
+        
+        Cache.AutoFarmConnection = task.spawn(farmLoop)
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "AutoFarm",
+            Text = "Автофарм включен! 🚀",
+            Duration = 3
+        })
+    else
+        safeDisconnect(Cache.AutoFarmConnection)
+        Cache.AutoFarmConnection = nil
+        
+        if LocalPlayer.Character then
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid.Sit = false end
+        end
+        
+        if Cache.CurrentTween then
+            pcall(function() Cache.CurrentTween:Cancel() end)
+            Cache.CurrentTween = nil
+        end
+    end
+end
+
+-- ========================================
 -- ===== NORMAL FLY =====
 -- ========================================
 
@@ -995,7 +1194,7 @@ local function stopFly()
 end
 
 -- ========================================
--- ===== SPIN BOT (300° В СЕКУНДУ) =====
+-- ===== SPIN BOT =====
 -- ========================================
 
 local spinConnection = nil
@@ -1006,8 +1205,7 @@ local function setupSpinBot()
             if not Settings.SpinBotEnabled or not LocalPlayer.Character then return end
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                -- 300° В СЕКУНДУ (0.3 РАДИАНА ЗА ХАРТБИТ ~ 60 FPS)
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, 0.3, 0)
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(10), 0)
             end
         end)
     else
@@ -1256,7 +1454,7 @@ RageSection:Toggle({
     end
 })
 
--- SPIN BOT (300° В СЕКУНДУ)
+-- SPIN BOT
 RageSection:Toggle({
     Title = "Spin Bot",
     Default = false,
@@ -1553,7 +1751,7 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Nimb (3D Ring)",
+    Title = "Nimb",
     Default = false,
     Callback = function(v)
         Settings.NimbEnabled = v
@@ -1675,20 +1873,46 @@ AntiAFKSection:Toggle({
 -- ========================================
 
 local AutoFarmTab = Window:Tab({ Title = "Auto Farm", Icon = "star" })
-local AutoFarmSection = AutoFarmTab:Section({ Title = "Auto Farm Settings", Side = "Left" })
+local AutoFarmSection = AutoFarmTab:Section({ Title = "Farm Settings", Side = "Left" })
+local AutoFarmSection2 = AutoFarmTab:Section({ Title = "Config", Side = "Right" })
 
 AutoFarmSection:Toggle({
     Title = "Auto Farm",
     Default = false,
     Callback = function(v)
         Settings.AutoFarmEnabled = v
+        setupAutoFarm()
     end
 })
 
-AutoFarmSection:Label({
-    Title = "Coming Soon",
-    Description = "Auto Farm features coming soon!",
-    Icon = "info"
+AutoFarmSection2:Input({
+    Title = "Farm Speed",
+    Default = "20",
+    Placeholder = "20",
+    Callback = function(v)
+        local num = tonumber(v)
+        if num then Settings.AutoFarmSpeed = num end
+    end
+})
+
+AutoFarmSection2:Input({
+    Title = "Coin Limit",
+    Default = "40",
+    Placeholder = "40",
+    Callback = function(v)
+        local num = tonumber(v)
+        if num then Settings.AutoFarmCoinLimit = num end
+    end
+})
+
+AutoFarmSection2:Input({
+    Title = "Coin Delay",
+    Default = "0.15",
+    Placeholder = "0.15",
+    Callback = function(v)
+        local num = tonumber(v)
+        if num then Settings.AutoFarmCoinDelay = num end
+    end
 })
 
 -- ========================================
