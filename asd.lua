@@ -12,7 +12,7 @@ local Window = WindUI:CreateWindow({
     Author = "Vibe Coder",
     Icon = "crown",
     Folder = "MurderHubSettings",
-    Size = UDim2.fromOffset(680, 550),
+    Size = UDim2.fromOffset(720, 600),
     Resizable = true,
     Transparent = true,
     Theme = "Dark",
@@ -35,7 +35,7 @@ local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- ========================================
--- ===== ПЕРЕМЕННЫЕ =====
+-- ===== НАСТРОЙКИ =====
 -- ========================================
 
 local Settings = {
@@ -56,12 +56,43 @@ local Settings = {
     BoxMurder = false,
     BoxSheriff = false,
     BoxInnocent = false,
+    BoxThickness = 0.05,
     
     -- Visuals
     JumpCircles = false,
     Trails = false,
     FogEnabled = false,
+    
+    -- Particles
     ParticlesEnabled = false,
+    ParticleType = "rain",
+    ParticleCount = 50,
+    ParticleSize = 0.3,
+    ParticleSpeed = 1,
+    ParticleLifetime = 5,
+    
+    -- Shaders
+    BloomEnabled = false,
+    BloomIntensity = 1,
+    ColorCorrectionEnabled = false,
+    ColorCorrectionTint = Color3.fromRGB(138, 43, 226),
+    ColorCorrectionSaturation = 1,
+    ColorCorrectionBrightness = 0,
+    BlurEnabled = false,
+    BlurSize = 10,
+    DepthOfFieldEnabled = false,
+    DepthOfFieldBlur = 5,
+    VignetteEnabled = false,
+    VignetteIntensity = 0.3,
+    SunRaysEnabled = false,
+    
+    -- Sky
+    CustomSkyId = "",
+    
+    -- Other
+    CrosshairEnabled = false,
+    KillIndicatorEnabled = false,
+    KillSound = false,
     
     -- Rage
     FlyEnabled = false,
@@ -69,8 +100,6 @@ local Settings = {
     BHopEnabled = false,
     SpinBotEnabled = false,
     SpinSpeed = 5,
-    
-    -- Aim
     SilentAimEnabled = false,
     SilentAimFOV = 150,
     
@@ -81,18 +110,18 @@ local Settings = {
 }
 
 -- ========================================
--- ===== КЭШИ И ССЫЛКИ =====
+-- ===== КЭШИ =====
 -- ========================================
 
 local Cache = {
     Highlights = {},
     Boxes = {},
     Bones = {},
-    BodyParts = {},
     Visuals = {},
     Connections = {},
     ChamsParts = {},
-    Particles = {}
+    Particles = {},
+    PostEffects = {}
 }
 
 local COLORS = {
@@ -206,7 +235,7 @@ end
 -- ===== CHAMS (ЧЕРЕЗ СТЕНУ) =====
 -- ========================================
 
-local function applyChams(player, isLocalPlayer)
+local function applyChams(player)
     if not player or not player.Character then return end
     
     local parts = Cache.ChamsParts[player.UserId] or {}
@@ -218,16 +247,13 @@ local function applyChams(player, isLocalPlayer)
                     ogMaterial = part.Material,
                     ogColor = part.Color,
                     ogTransparency = part.Transparency,
-                    ogCanCollide = part.CanCollide
                 }
             end
             
             if Settings.ChamsEnabled then
-                -- Всегда фиолетовый
                 part.Material = Enum.Material.Neon
                 part.Color = COLORS.Purple
                 part.Transparency = Settings.ChamsThickness
-                part.CanCollide = part.CanCollide -- сохраняем коллизии
             end
         end
     end
@@ -247,7 +273,6 @@ local function removeChams(player)
                 part.Material = data.ogMaterial
                 part.Color = data.ogColor
                 part.Transparency = data.ogTransparency
-                part.CanCollide = data.ogCanCollide
             end)
         end
     end
@@ -263,7 +288,6 @@ local function clearAllChams()
                     part.Material = data.ogMaterial
                     part.Color = data.ogColor
                     part.Transparency = data.ogTransparency
-                    part.CanCollide = data.ogCanCollide
                 end)
             end
         end
@@ -272,34 +296,144 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== BOX ESP =====
+-- ===== BOX ESP (РАБОЧИЙ) =====
 -- ========================================
 
-local function createBox(player, color)
+local boxUpdateConnection = nil
+
+local function updateBoxDisplay(player, color)
     if not player or not player.Character then return end
+    
     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    local box = Instance.new("SelectionBox")
-    box.Adornee = player.Character
-    box.Color3 = color
-    box.LineThickness = 0.05
-    box.SurfaceTransparency = 0.8
-    box.SurfaceColor3 = color
-    box.Parent = workspace
+    local boxKey = "box_" .. player.UserId
+    local boxData = Cache.Boxes[boxKey]
     
-    Cache.Boxes[player.UserId] = box
+    if not boxData then
+        -- Создаём 8 углов для box'а
+        local corners = {}
+        for i = 1, 8 do
+            local corner = Drawing.new("Line")
+            corner.Color = color
+            corner.Thickness = Settings.BoxThickness * 100
+            corner.Transparency = 0.7
+            corner.Visible = false
+            table.insert(corners, corner)
+        end
+        
+        boxData = {
+            corners = corners,
+            color = color,
+            lastUpdate = tick()
+        }
+        Cache.Boxes[boxKey] = boxData
+    else
+        boxData.color = color
+    end
+end
+
+local function drawBox3D(player, color)
+    if not player or not player.Character then return end
+    
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local boxKey = "box_" .. player.UserId
+    local boxData = Cache.Boxes[boxKey]
+    
+    if not boxData then return end
+    
+    local corners = boxData.corners
+    local size = Vector3.new(3, 6, 3)
+    local position = hrp.Position
+    
+    -- 8 углов куба
+    local offsets = {
+        Vector3.new(-size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new(size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new(size.X/2, size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2, size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2, -size.Y/2, size.Z/2),
+        Vector3.new(size.X/2, -size.Y/2, size.Z/2),
+        Vector3.new(size.X/2, size.Y/2, size.Z/2),
+        Vector3.new(-size.X/2, size.Y/2, size.Z/2),
+    }
+    
+    local screenPoints = {}
+    for i, offset in ipairs(offsets) do
+        local worldPos = position + offset
+        local screenPos, onScreen = Camera:WorldToScreenPoint(worldPos)
+        if onScreen then
+            screenPoints[i] = Vector2.new(screenPos.X, screenPos.Y)
+        else
+            screenPoints[i] = nil
+        end
+    end
+    
+    -- Рисуем линии между углами
+    if screenPoints[1] and screenPoints[2] then
+        corners[1].From = screenPoints[1]
+        corners[1].To = screenPoints[2]
+        corners[1].Visible = true
+    end
+    if screenPoints[2] and screenPoints[3] then
+        corners[2].From = screenPoints[2]
+        corners[2].To = screenPoints[3]
+        corners[2].Visible = true
+    end
+    if screenPoints[3] and screenPoints[4] then
+        corners[3].From = screenPoints[3]
+        corners[3].To = screenPoints[4]
+        corners[3].Visible = true
+    end
+    if screenPoints[4] and screenPoints[1] then
+        corners[4].From = screenPoints[4]
+        corners[4].To = screenPoints[1]
+        corners[4].Visible = true
+    end
+    
+    -- Верхние линии
+    if screenPoints[5] and screenPoints[6] then
+        corners[5].From = screenPoints[5]
+        corners[5].To = screenPoints[6]
+        corners[5].Visible = true
+    end
+    if screenPoints[6] and screenPoints[7] then
+        corners[6].From = screenPoints[6]
+        corners[6].To = screenPoints[7]
+        corners[6].Visible = true
+    end
+    if screenPoints[7] and screenPoints[8] then
+        corners[7].From = screenPoints[7]
+        corners[7].To = screenPoints[8]
+        corners[7].Visible = true
+    end
+    if screenPoints[8] and screenPoints[5] then
+        corners[8].From = screenPoints[8]
+        corners[8].To = screenPoints[5]
+        corners[8].Visible = true
+    end
 end
 
 local function removeBox(player)
-    local box = Cache.Boxes[player.UserId]
-    if box then pcall(function() box:Destroy() end) end
-    Cache.Boxes[player.UserId] = nil
+    local boxKey = "box_" .. player.UserId
+    local boxData = Cache.Boxes[boxKey]
+    if boxData then
+        for _, corner in ipairs(boxData.corners) do
+            pcall(function() corner:Remove() end)
+        end
+    end
+    Cache.Boxes[boxKey] = nil
 end
 
 local function clearAllBoxes()
-    for userId, box in pairs(Cache.Boxes) do
-        if box then pcall(function() box:Destroy() end) end
+    for key, boxData in pairs(Cache.Boxes) do
+        if boxData and boxData.corners then
+            for _, corner in ipairs(boxData.corners) do
+                pcall(function() corner:Remove() end)
+            end
+        end
     end
     Cache.Boxes = {}
 end
@@ -316,6 +450,24 @@ local SKELETON_BONES = {
     {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
     {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"},
 }
+
+local function createSkeletonForPlayer(player)
+    if player == LocalPlayer or not player.Character then return end
+    
+    local bones = Cache.Bones[player.UserId]
+    if bones then return end
+    
+    bones = {}
+    for _, bonePair in ipairs(SKELETON_BONES) do
+        local line = Drawing.new("Line")
+        line.Thickness = 1.5
+        line.Transparency = 0.8
+        line.Visible = false
+        table.insert(bones, {pair = bonePair, line = line})
+    end
+    
+    Cache.Bones[player.UserId] = bones
+end
 
 local function updateSkeletonBone(player, bone1Name, bone2Name, line)
     if not player.Character then return false end
@@ -341,24 +493,6 @@ local function updateSkeletonBone(player, bone1Name, bone2Name, line)
         line.Visible = false
         return false
     end
-end
-
-local function createSkeletonForPlayer(player)
-    if player == LocalPlayer or not player.Character then return end
-    
-    local bones = Cache.Bones[player.UserId]
-    if bones then return end
-    
-    bones = {}
-    for _, bonePair in ipairs(SKELETON_BONES) do
-        local line = Drawing.new("Line")
-        line.Thickness = 1.5
-        line.Transparency = 0.8
-        line.Visible = false
-        table.insert(bones, {pair = bonePair, line = line})
-    end
-    
-    Cache.Bones[player.UserId] = bones
 end
 
 local function updateAllSkeletons()
@@ -436,7 +570,6 @@ local function createLocalPlayerTrail()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Очищаем старые
     local oldTrail = hrp:FindFirstChild("LocalTrail")
     if oldTrail then oldTrail:Destroy() end
     
@@ -468,155 +601,288 @@ local function createLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== PURPLE FOG =====
--- ========================================
-
-local originalLighting = nil
-
-local function setupFog()
-    if Settings.FogEnabled then
-        if not originalLighting then
-            originalLighting = {
-                Brightness = Lighting.Brightness,
-                ClockTime = Lighting.ClockTime,
-                FogEnd = Lighting.FogEnd,
-                GlobalShadows = Lighting.GlobalShadows,
-                Ambient = Lighting.Ambient,
-                OutdoorAmbient = Lighting.OutdoorAmbient
-            }
-        end
-        
-        Lighting.Brightness = 1.5
-        Lighting.ClockTime = 16
-        Lighting.FogEnd = 500
-        Lighting.Ambient = COLORS.Purple
-        Lighting.OutdoorAmbient = COLORS.Purple
-        Lighting.GlobalShadows = false
-    else
-        if originalLighting then
-            Lighting.Brightness = originalLighting.Brightness
-            Lighting.ClockTime = originalLighting.ClockTime
-            Lighting.FogEnd = originalLighting.FogEnd
-            Lighting.GlobalShadows = originalLighting.GlobalShadows
-            Lighting.Ambient = originalLighting.Ambient
-            Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
-        end
-    end
-end
-
--- ========================================
--- ===== PARTICLES (ПО ВСЕЙ КАРТЕ) =====
+-- ===== ОПТИМИЗИРОВАННАЯ СИСТЕМА ЧАСТИЦ =====
 -- ========================================
 
 local particleSpawnConnection = nil
+local particleUpdateConnection = nil
+local activeParticles = {}
+
+local PARTICLE_PRESETS = {
+    rain = {
+        velocity = Vector3.new(0, -15, 0),
+        size = 0.2,
+        lifetime = 8,
+        color = COLORS.Purple,
+    },
+    snow = {
+        velocity = Vector3.new(0.5, -5, 0.5),
+        size = 0.4,
+        lifetime = 10,
+        color = Color3.fromRGB(200, 200, 255),
+    },
+    sparks = {
+        velocity = Vector3.new(10, 15, 10),
+        size = 0.15,
+        lifetime = 3,
+        color = COLORS.Purple,
+    },
+    magic = {
+        velocity = Vector3.new(5, 8, 5),
+        size = 0.25,
+        lifetime = 5,
+        color = COLORS.Purple,
+    }
+}
+
+local function createOptimizedParticle(position, preset)
+    local att = Instance.new("Attachment")
+    att.Parent = Workspace
+    att.WorldPosition = position
+    
+    -- Создаём визуальный трейл вместо Part для оптимизации
+    local att2 = Instance.new("Attachment")
+    att2.Parent = Workspace
+    att2.WorldPosition = position + Vector3.new(0.1, 0, 0)
+    
+    local trail = Instance.new("Trail")
+    trail.Attachment0 = att
+    trail.Attachment1 = att2
+    trail.Lifetime = preset.lifetime
+    trail.MinLength = 0
+    trail.FaceCamera = true
+    trail.LightEmission = 1
+    trail.LightInfluence = 0
+    trail.Color = ColorSequence.new(preset.color)
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    trail.Parent = att
+    
+    local particle = {
+        att = att,
+        att2 = att2,
+        trail = trail,
+        lifetime = preset.lifetime,
+        startTime = tick(),
+        velocity = preset.velocity,
+        position = position
+    }
+    
+    table.insert(activeParticles, particle)
+    return particle
+end
+
+local function updateParticles()
+    local toRemove = {}
+    
+    for i, particle in ipairs(activeParticles) do
+        local elapsed = tick() - particle.startTime
+        
+        if elapsed >= particle.lifetime or not particle.att or not particle.att.Parent then
+            pcall(function() 
+                particle.trail:Destroy()
+                particle.att:Destroy()
+                particle.att2:Destroy()
+            end)
+            table.insert(toRemove, i)
+        else
+            -- Обновляем позицию частицы
+            particle.position = particle.position + particle.velocity * 0.016
+            particle.att.WorldPosition = particle.position
+            particle.att2.WorldPosition = particle.position + Vector3.new(0.1, 0, 0)
+        end
+    end
+    
+    -- Удаляем частицы в обратном порядке
+    for i = #toRemove, 1, -1 do
+        table.remove(activeParticles, toRemove[i])
+    end
+end
 
 local function spawnParticles()
     if not Settings.ParticlesEnabled then return end
     
-    for i = 1, 3 do
-        task.spawn(function()
-            local particle = Instance.new("Part")
-            particle.Shape = Enum.PartType.Ball
-            particle.Size = Vector3.new(0.3, 0.3, 0.3)
-            particle.Material = Enum.Material.Neon
-            particle.Color = COLORS.Purple
-            particle.Transparency = 0.4
-            particle.Anchored = true
-            particle.CanCollide = false
-            particle.CFrame = CFrame.new(
-                math.random(-500, 500),
-                math.random(50, 250),
-                math.random(-500, 500)
-            )
-            particle.Parent = workspace
-            
-            Cache.Particles[particle] = true
-            
-            local lifetime = 15
-            local startTime = tick()
-            
-            -- Парящая частица (статична в воздухе)
-            local conn
-            conn = RunService.Heartbeat:Connect(function()
-                if not Settings.ParticlesEnabled or not particle or not particle.Parent then
-                    pcall(function() particle:Destroy() end)
-                    Cache.Particles[particle] = nil
-                    safeDisconnect(conn)
-                    return
-                end
-                
-                local elapsed = tick() - startTime
-                if elapsed >= lifetime then
-                    pcall(function() particle:Destroy() end)
-                    Cache.Particles[particle] = nil
-                    safeDisconnect(conn)
-                    return
-                end
-                
-                -- Медленное плавание в воздухе
-                particle.CFrame = particle.CFrame * CFrame.new(
-                    math.sin(elapsed * 0.3) * 0.01,
-                    0.02,
-                    math.cos(elapsed * 0.3) * 0.01
-                )
-                
-                -- Постепенное исчезание в конце
-                if elapsed > lifetime * 0.8 then
-                    particle.Transparency = 0.4 + ((elapsed - lifetime * 0.8) / (lifetime * 0.2)) * 0.6
-                end
-            end)
+    local preset = PARTICLE_PRESETS[Settings.ParticleType] or PARTICLE_PRESETS.rain
+    
+    for i = 1, math.ceil(Settings.ParticleCount / 100) do
+        local randomPos = Vector3.new(
+            math.random(-500, 500),
+            math.random(100, 300),
+            math.random(-500, 500)
+        )
+        
+        local modifiedPreset = {
+            velocity = preset.velocity * Settings.ParticleSpeed,
+            size = Settings.ParticleSize,
+            lifetime = Settings.ParticleLifetime,
+            color = Settings.ParticleType == "magic" and COLORS.Purple or preset.color
+        }
+        
+        createOptimizedParticle(randomPos, modifiedPreset)
+    end
+end
+
+local function clearAllParticles()
+    for _, particle in ipairs(activeParticles) do
+        pcall(function() 
+            particle.trail:Destroy()
+            particle.att:Destroy()
+            particle.att2:Destroy()
         end)
     end
+    activeParticles = {}
 end
 
 -- ========================================
--- ===== SILENT AIM =====
+-- ===== POST-EFFECTS (ШЕЙДЕРЫ) =====
 -- ========================================
 
-local function findAimTarget()
-    local closestPlayer = nil
-    local closestDistance = Settings.SilentAimFOV
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and checkKnife(player) then
-            local targetPos = player.Character:FindFirstChild("Head")
-            if targetPos then
-                local screenPos, onScreen = Camera:WorldToScreenPoint(targetPos.Position)
-                if onScreen then
-                    local distance = (screenPos - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
-                    
-                    if distance < closestDistance then
-                        closestDistance = distance
-                        closestPlayer = player
-                    end
-                end
-            end
-        end
+local function setupBloom(intensity)
+    if Settings.BloomEnabled then
+        Lighting.Brightness = 1.5 + (intensity * 0.5)
+    else
+        Lighting.Brightness = 1
     end
-    
-    return closestPlayer
 end
 
-local aimHeartbeat = nil
+local function setupColorCorrection(tint, saturation, brightness)
+    if Settings.ColorCorrectionEnabled then
+        Lighting.Ambient = tint
+        Lighting.OutdoorAmbient = tint
+        Lighting.Brightness = 1 + brightness
+    else
+        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+        Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
+        Lighting.Brightness = 1
+    end
+end
 
-local function setupSilentAim()
-    if Settings.SilentAimEnabled then
-        if not aimHeartbeat then
-            aimHeartbeat = RunService.Heartbeat:Connect(function()
-                if not Settings.SilentAimEnabled then return end
-                
-                local target = findAimTarget()
-                if target and target.Character then
-                    local targetHead = target.Character:FindFirstChild("Head")
-                    if targetHead then
-                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
-                    end
-                end
-            end)
+local function setupVignette(intensity)
+    if Settings.VignetteEnabled then
+        if not Cache.PostEffects["vignette"] then
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "VignetteEffect"
+            screenGui.ResetOnSpawn = false
+            screenGui.IgnoreGuiInset = true
+            
+            local vignette = Instance.new("Frame")
+            vignette.Name = "VignetteFrame"
+            vignette.Size = UDim2.new(1, 0, 1, 0)
+            vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            vignette.BackgroundTransparency = 0.5
+            vignette.BorderSizePixel = 0
+            vignette.Parent = screenGui
+            
+            -- Радиальный градиент (через UIGradient)
+            local gradient = Instance.new("UIGradient")
+            gradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+            })
+            gradient.Parent = vignette
+            
+            screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            Cache.PostEffects["vignette"] = screenGui
         end
     else
-        safeDisconnect(aimHeartbeat)
-        aimHeartbeat = nil
+        if Cache.PostEffects["vignette"] then
+            pcall(function() Cache.PostEffects["vignette"]:Destroy() end)
+            Cache.PostEffects["vignette"] = nil
+        end
+    end
+end
+
+local function setupSky(skyId)
+    if skyId == "" then return end
+    
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    
+    if not skyId:find("rbxassetid://") then
+        skyId = "rbxassetid://" .. skyId
+    end
+    
+    pcall(function()
+        sky.SkyboxBk = skyId
+        sky.SkyboxDn = skyId
+        sky.SkyboxFt = skyId
+        sky.SkyboxLf = skyId
+        sky.SkyboxRt = skyId
+        sky.SkyboxUp = skyId
+    end)
+end
+
+-- ========================================
+-- ===== CROSSHAIR =====
+-- ========================================
+
+local crosshairGui = nil
+
+local function createCrosshair()
+    if crosshairGui then crosshairGui:Destroy() end
+    
+    crosshairGui = Instance.new("ScreenGui")
+    crosshairGui.Name = "Crosshair"
+    crosshairGui.ResetOnSpawn = false
+    crosshairGui.IgnoreGuiInset = true
+    
+    local size = 30
+    local center = 1920 / 2
+    
+    -- Горизонтальная линия
+    local horizontal = Instance.new("Frame")
+    horizontal.Size = UDim2.new(0, size, 0, 2)
+    horizontal.Position = UDim2.new(0.5, -size/2, 0.5, 0)
+    horizontal.BackgroundColor3 = COLORS.Purple
+    horizontal.BorderSizePixel = 0
+    horizontal.Parent = crosshairGui
+    
+    -- Вертикальная линия
+    local vertical = Instance.new("Frame")
+    vertical.Size = UDim2.new(0, 2, 0, size)
+    vertical.Position = UDim2.new(0.5, 0, 0.5, -size/2)
+    vertical.BackgroundColor3 = COLORS.Purple
+    vertical.BorderSizePixel = 0
+    vertical.Parent = crosshairGui
+    
+    -- Центр
+    local center_dot = Instance.new("Frame")
+    center_dot.Size = UDim2.new(0, 4, 0, 4)
+    center_dot.Position = UDim2.new(0.5, -2, 0.5, -2)
+    center_dot.BackgroundColor3 = COLORS.Purple
+    center_dot.BorderSizePixel = 0
+    center_dot.Parent = crosshairGui
+    
+    crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ========================================
+-- ===== KILL INDICATOR =====
+-- ========================================
+
+local function notifyKill(victim)
+    if not Settings.KillIndicatorEnabled then return end
+    
+    StarterGui:SetCore("SendNotification", {
+        Title = "💀 KILL",
+        Text = "Убил: " .. victim.Name,
+        Duration = 3,
+        Icon = "rbxasset://textures/face.png"
+    })
+    
+    if Settings.KillSound then
+        -- Воспроизводим звук убийства
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://6947876300"
+        sound.Volume = 0.5
+        sound.Parent = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or Workspace
+        sound:Play()
+        game:GetService("Debris"):AddItem(sound, 2)
     end
 end
 
@@ -629,14 +895,12 @@ local mainUpdateConnection = nil
 local function updateVisuals()
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then
-            -- Локальный игрок
             if Settings.ChamsEnabled then
-                applyChams(player, true)
+                applyChams(player)
             else
                 removeChams(player)
             end
         else
-            -- Остальные игроки
             if not player.Character then continue end
             
             local role = getRole(player)
@@ -653,19 +917,18 @@ local function updateVisuals()
             end
             
             -- Box ESP
-            if Settings.BoxMurder and role == "Murder" then
-                createBox(player, COLORS.Murder)
-            elseif Settings.BoxSheriff and role == "Sheriff" then
-                createBox(player, COLORS.Sheriff)
-            elseif Settings.BoxInnocent and role == "Innocent" then
-                createBox(player, COLORS.Innocent)
+            if (Settings.BoxMurder and role == "Murder") or
+               (Settings.BoxSheriff and role == "Sheriff") or
+               (Settings.BoxInnocent and role == "Innocent") then
+                updateBoxDisplay(player, getRoleColor(player))
+                drawBox3D(player, getRoleColor(player))
             else
                 removeBox(player)
             end
             
             -- Chams
             if Settings.ChamsEnabled then
-                applyChams(player, false)
+                applyChams(player)
             else
                 removeChams(player)
             end
@@ -687,7 +950,7 @@ local function updateVisuals()
         end
     end
     
-    -- Обновление скелетов
+    -- Skeleton обновление
     if Settings.SkeletonESP then
         updateAllSkeletons()
     end
@@ -712,20 +975,26 @@ local function startMainUpdate()
         local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or 
                          Settings.BoxMurder or Settings.BoxSheriff or Settings.BoxInnocent or
                          Settings.ChamsEnabled or Settings.SkeletonESP or Settings.JumpCircles or
-                         Settings.Trails or Settings.ParticlesEnabled
+                         Settings.Trails
         
         if anyActive then
             updateVisuals()
         end
     end)
     
-    -- Спавн частиц
+    -- Particles spawn
     if particleSpawnConnection then safeDisconnect(particleSpawnConnection) end
+    if particleUpdateConnection then safeDisconnect(particleUpdateConnection) end
+    
     if Settings.ParticlesEnabled then
         particleSpawnConnection = RunService.Heartbeat:Connect(function()
-            if Settings.ParticlesEnabled and math.random(1, 15) == 1 then
+            if Settings.ParticlesEnabled and math.random(1, 20) == 1 then
                 spawnParticles()
             end
+        end)
+        
+        particleUpdateConnection = RunService.Heartbeat:Connect(function()
+            updateParticles()
         end)
     end
 end
@@ -864,26 +1133,6 @@ RageSection:Slider({
     end
 })
 
--- SILENT AIM
-RageSection:Toggle({
-    Title = "Silent Aim (Murders)",
-    Default = false,
-    Callback = function(value)
-        Settings.SilentAimEnabled = value
-        setupSilentAim()
-    end
-})
-
-RageSection:Slider({
-    Title = "Aim FOV",
-    Default = 150,
-    Min = 10,
-    Max = 500,
-    Callback = function(v) 
-        Settings.SilentAimFOV = v 
-    end
-})
-
 -- ========================================
 -- ===== COMBAT TAB =====
 -- ========================================
@@ -984,7 +1233,7 @@ local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
 local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
 
--- ESP TOGGLES
+-- ESP
 VisualSection:Toggle({
     Title = "ESP Murder",
     Default = false,
@@ -1020,6 +1269,16 @@ VisualSection:Toggle({
     Title = "Box Innocent",
     Default = false,
     Callback = function(v) Settings.BoxInnocent = v startMainUpdate() end
+})
+
+VisualSection:Slider({
+    Title = "Box Thickness",
+    Default = 0.05,
+    Min = 0.01,
+    Max = 0.2,
+    Callback = function(v) 
+        Settings.BoxThickness = v 
+    end
 })
 
 -- CHAMS
@@ -1060,74 +1319,191 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "Purple Fog",
+    Title = "Crosshair",
     Default = false,
-    Callback = function(v) Settings.FogEnabled = v setupFog() end
+    Callback = function(v) 
+        Settings.CrosshairEnabled = v 
+        if v then
+            createCrosshair()
+        else
+            if crosshairGui then crosshairGui:Destroy() crosshairGui = nil end
+        end
+    end
 })
 
-VisualSection2:Toggle({
+-- ========================================
+-- ===== PARTICLES TAB =====
+-- ========================================
+
+local ParticlesTab = Window:Tab({ Title = "Particles", Icon = "cloud" })
+local ParticlesSection = ParticlesTab:Section({ Title = "Particle Settings", Side = "Left" })
+
+ParticlesSection:Toggle({
     Title = "Particles",
     Default = false,
     Callback = function(v) 
         Settings.ParticlesEnabled = v 
         startMainUpdate()
         if not v then
-            for particle, _ in pairs(Cache.Particles) do
-                pcall(function() particle:Destroy() end)
-            end
-            Cache.Particles = {}
+            clearAllParticles()
+        end
+    end
+})
+
+ParticlesSection:Dropdown({
+    Title = "Particle Type",
+    Default = "rain",
+    Options = {"rain", "snow", "sparks", "magic"},
+    Callback = function(v) Settings.ParticleType = v end
+})
+
+ParticlesSection:Slider({
+    Title = "Particle Count",
+    Default = 50,
+    Min = 10,
+    Max = 200,
+    Callback = function(v) Settings.ParticleCount = v end
+})
+
+ParticlesSection:Slider({
+    Title = "Particle Size",
+    Default = 0.3,
+    Min = 0.1,
+    Max = 1,
+    Callback = function(v) Settings.ParticleSize = v end
+})
+
+ParticlesSection:Slider({
+    Title = "Particle Speed",
+    Default = 1,
+    Min = 0.1,
+    Max = 5,
+    Callback = function(v) Settings.ParticleSpeed = v end
+})
+
+ParticlesSection:Slider({
+    Title = "Particle Lifetime",
+    Default = 5,
+    Min = 1,
+    Max = 20,
+    Callback = function(v) Settings.ParticleLifetime = v end
+})
+
+-- ========================================
+-- ===== SHADERS TAB =====
+-- ========================================
+
+local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
+local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
+local ShadersSection2 = ShadersTab:Section({ Title = "Color", Side = "Right" })
+
+-- BLOOM
+ShadersSection:Toggle({
+    Title = "Bloom",
+    Default = false,
+    Callback = function(v) 
+        Settings.BloomEnabled = v 
+        setupBloom(Settings.BloomIntensity)
+    end
+})
+
+ShadersSection:Slider({
+    Title = "Bloom Intensity",
+    Default = 1,
+    Min = 0,
+    Max = 5,
+    Callback = function(v) 
+        Settings.BloomIntensity = v 
+        if Settings.BloomEnabled then setupBloom(v) end
+    end
+})
+
+-- COLOR CORRECTION
+ShadersSection2:Toggle({
+    Title = "Color Correction",
+    Default = false,
+    Callback = function(v) 
+        Settings.ColorCorrectionEnabled = v 
+        setupColorCorrection(Settings.ColorCorrectionTint, Settings.ColorCorrectionSaturation, Settings.ColorCorrectionBrightness)
+    end
+})
+
+ShadersSection2:Slider({
+    Title = "Brightness",
+    Default = 0,
+    Min = -1,
+    Max = 1,
+    Callback = function(v) 
+        Settings.ColorCorrectionBrightness = v 
+        if Settings.ColorCorrectionEnabled then setupColorCorrection(Settings.ColorCorrectionTint, Settings.ColorCorrectionSaturation, v) end
+    end
+})
+
+-- VIGNETTE
+ShadersSection:Toggle({
+    Title = "Vignette",
+    Default = false,
+    Callback = function(v) 
+        Settings.VignetteEnabled = v 
+        setupVignette(Settings.VignetteIntensity)
+    end
+})
+
+ShadersSection:Slider({
+    Title = "Vignette Intensity",
+    Default = 0.3,
+    Min = 0,
+    Max = 1,
+    Callback = function(v) 
+        Settings.VignetteIntensity = v 
+    end
+})
+
+-- ========================================
+-- ===== SKY TAB =====
+-- ========================================
+
+local SkyTab = Window:Tab({ Title = "Sky", Icon = "cloud" })
+local SkySection = SkyTab:Section({ Title = "Sky Settings", Side = "Left" })
+
+SkySection:Input({
+    Title = "Sky ID",
+    Default = "",
+    Placeholder = "rbxassetid://...",
+    Callback = function(v) Settings.CustomSkyId = v end
+})
+
+SkySection:Button({
+    Title = "Apply Sky",
+    Callback = function()
+        if Settings.CustomSkyId ~= "" then
+            setupSky(Settings.CustomSkyId)
+            StarterGui:SetCore("SendNotification", {
+                Title = "Sky",
+                Text = "Sky applied!",
+                Duration = 2
+            })
         end
     end
 })
 
 -- ========================================
--- ===== FLING TAB =====
+-- ===== GAMEPLAY TAB =====
 -- ========================================
 
-local FlingTab = Window:Tab({ Title = "Fling", Icon = "rocket" })
-local FlingSection = FlingTab:Section({ Title = "Fling", Side = "Left" })
+local GameplayTab = Window:Tab({ Title = "Gameplay", Icon = "star" })
+local GameplaySection = GameplayTab:Section({ Title = "Gameplay Settings", Side = "Left" })
 
-FlingSection:Button({
-    Title = "Fling Murder",
-    Callback = function()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and checkKnife(player) then
-                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
-                end
-            end
-        end
-    end
+GameplaySection:Toggle({
+    Title = "Kill Indicator",
+    Default = false,
+    Callback = function(v) Settings.KillIndicatorEnabled = v end
 })
 
-FlingSection:Button({
-    Title = "Fling Sheriff",
-    Callback = function()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and checkGun(player) then
-                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
-                end
-            end
-        end
-    end
-})
-
-FlingSection:Button({
-    Title = "Fling All",
-    Callback = function()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = Vector3.new(math.random(-999, 999), 500, math.random(-999, 999))
-                end
-            end
-        end
-        StarterGui:SetCore("SendNotification", {Title = "Fling", Text = "All flinged!", Duration = 2})
-    end
+GameplaySection:Toggle({
+    Title = "Kill Sound",
+    Default = false,
+    Callback = function(v) Settings.KillSound = v end
 })
 
 -- ========================================
@@ -1138,8 +1514,8 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v4.0",
-    Description = "Purple Theme • Optimized",
+    Title = "Murder Hub v5.0",
+    Description = "Advanced • Fully Featured",
     Icon = "crown"
 })
 
@@ -1160,7 +1536,6 @@ SettingsSection:Button({
 -- ===== ИНИЦИАЛИЗАЦИЯ =====
 -- ========================================
 
--- New player handler
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
@@ -1170,7 +1545,6 @@ Players.PlayerAdded:Connect(function(player)
     end)
 end)
 
--- Character respawn handler
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     clearAllHighlights()
@@ -1185,12 +1559,11 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 end)
 
--- Startup
 startMainUpdate()
 
-print("✅ Murder Hub v4.0 Loaded!")
+print("✅ Murder Hub v5.0 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Murder Hub",
-    Text = "✅ v4.0 Loaded • Purple Theme!",
+    Text = "✅ v5.0 Complete Edition!",
     Duration = 5
 })
