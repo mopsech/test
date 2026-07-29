@@ -50,6 +50,7 @@ local Settings = {
     ChamsMurder = false,
     ChamsSheriff = false,
     ChamsInnocent = false,
+    ChamsThickness = 0.2,
     
     -- Box
     BoxMurder = false,
@@ -58,7 +59,6 @@ local Settings = {
     
     -- Visuals
     JumpCircles = false,
-    ChinaHat = false,
     Trails = false,
     FogEnabled = false,
     ParticlesEnabled = false,
@@ -91,7 +91,8 @@ local Cache = {
     BodyParts = {},
     Visuals = {},
     Connections = {},
-    ChamsParts = {}
+    ChamsParts = {},
+    Particles = {}
 }
 
 local COLORS = {
@@ -100,8 +101,6 @@ local COLORS = {
     Innocent = Color3.fromRGB(0, 255, 0),
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
-    Gold = Color3.fromRGB(255, 215, 0),
-    Pink = Color3.fromRGB(255, 0, 255)
 }
 
 -- ========================================
@@ -164,7 +163,7 @@ local function getRoleColor(player)
 end
 
 -- ========================================
--- ===== HIGHLIGHT ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ===== HIGHLIGHT ESP =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
@@ -204,10 +203,10 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS (ОПТИМИЗИРОВАННЫЕ) =====
+-- ===== CHAMS (ЧЕРЕЗ СТЕНУ) =====
 -- ========================================
 
-local function applyChams(player)
+local function applyChams(player, isLocalPlayer)
     if not player or not player.Character then return end
     
     local parts = Cache.ChamsParts[player.UserId] or {}
@@ -218,25 +217,17 @@ local function applyChams(player)
                 parts[part] = {
                     ogMaterial = part.Material,
                     ogColor = part.Color,
-                    ogTransparency = part.Transparency
+                    ogTransparency = part.Transparency,
+                    ogCanCollide = part.CanCollide
                 }
             end
             
-            local role = getRole(player)
-            local color = COLORS.Purple
-            
-            if role == "Murder" and Settings.ChamsMurder then
-                color = COLORS.Murder
-            elseif role == "Sheriff" and Settings.ChamsSheriff then
-                color = COLORS.Sheriff
-            elseif role == "Innocent" and Settings.ChamsInnocent then
-                color = COLORS.Innocent
-            end
-            
             if Settings.ChamsEnabled then
-                part.Material = Enum.Material.ForceField
-                part.Color = color
-                part.Transparency = 0.2
+                -- Всегда фиолетовый
+                part.Material = Enum.Material.Neon
+                part.Color = COLORS.Purple
+                part.Transparency = Settings.ChamsThickness
+                part.CanCollide = part.CanCollide -- сохраняем коллизии
             end
         end
     end
@@ -256,6 +247,7 @@ local function removeChams(player)
                 part.Material = data.ogMaterial
                 part.Color = data.ogColor
                 part.Transparency = data.ogTransparency
+                part.CanCollide = data.ogCanCollide
             end)
         end
     end
@@ -271,6 +263,7 @@ local function clearAllChams()
                     part.Material = data.ogMaterial
                     part.Color = data.ogColor
                     part.Transparency = data.ogTransparency
+                    part.CanCollide = data.ogCanCollide
                 end)
             end
         end
@@ -279,7 +272,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== BOX ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ===== BOX ESP =====
 -- ========================================
 
 local function createBox(player, color)
@@ -312,7 +305,7 @@ local function clearAllBoxes()
 end
 
 -- ========================================
--- ===== SKELETON ESP (ОПТИМИЗИРОВАННАЯ) =====
+-- ===== SKELETON ESP =====
 -- ========================================
 
 local SKELETON_BONES = {
@@ -428,71 +421,23 @@ local function createJumpCircle(player)
         local alpha = elapsed / lifeTime
         circle.Size = Vector3.new(0.1, 5 + alpha * 8, 5 + alpha * 8)
         circle.Transparency = 0.3 + alpha * 0.7
-        circle.Color = Color3.fromHSV(0.75, 1 - alpha * 0.3, 1)
         circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
     end)
 end
 
 -- ========================================
--- ===== CHINA HAT =====
+-- ===== TRAILS (ТОЛЬКО ЛОКАЛЬНЫЙ ИГРОК) =====
 -- ========================================
 
-local function createChinaHat(player)
-    if not player or not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+local function createLocalPlayerTrail()
+    local char = LocalPlayer.Character
+    if not char then return end
     
-    local old = player.Character:FindFirstChild("ChinaHat_Mesh")
-    if old then old:Destroy() end
-    
-    local hat = Instance.new("Part")
-    hat.Name = "ChinaHat_Mesh"
-    hat.Size = Vector3.new(3, 1, 3)
-    hat.Material = Enum.Material.Neon
-    hat.Color = COLORS.Gold
-    hat.Transparency = 0.2
-    hat.Anchored = false
-    hat.CanCollide = false
-    hat.TopSurface = Enum.SurfaceType.Smooth
-    hat.BottomSurface = Enum.SurfaceType.Smooth
-    
-    local mesh = Instance.new("SpecialMesh")
-    mesh.MeshType = Enum.MeshType.Sphere
-    mesh.Scale = Vector3.new(1.5, 0.5, 1.5)
-    mesh.Parent = hat
-    
-    hat.Parent = player.Character
-    
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = hat
-    weld.Part1 = hrp
-    weld.Parent = hat
-    hat.Position = hrp.Position + Vector3.new(0, 3.5, 0)
-    
-    Cache.Visuals[player.UserId .. "_hat"] = hat
-    
-    task.spawn(function()
-        local angle = 0
-        while hat and hat.Parent and Settings.ChinaHat do
-            angle = angle + 0.02
-            hat.CFrame = hrp.CFrame * CFrame.new(0, 3.5, 0) * CFrame.Angles(0, angle, 0)
-            task.wait()
-        end
-        if hat then pcall(function() hat:Destroy() end) end
-    end)
-end
-
--- ========================================
--- ===== TRAILS =====
--- ========================================
-
-local function createTrail(player)
-    if not player or not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
     -- Очищаем старые
-    local oldTrail = hrp:FindFirstChild("MurderTrail")
+    local oldTrail = hrp:FindFirstChild("LocalTrail")
     if oldTrail then oldTrail:Destroy() end
     
     local att1 = Instance.new("Attachment")
@@ -504,7 +449,7 @@ local function createTrail(player)
     att2.Position = Vector3.new(1, 0, 0)
     
     local trail = Instance.new("Trail")
-    trail.Name = "MurderTrail"
+    trail.Name = "LocalTrail"
     trail.Attachment0 = att1
     trail.Attachment1 = att2
     trail.Lifetime = 0.8
@@ -516,26 +461,30 @@ local function createTrail(player)
         NumberSequenceKeypoint.new(0, 0),
         NumberSequenceKeypoint.new(1, 1)
     })
-    
-    local color = getRoleColor(player)
-    trail.Color = ColorSequence.new(color)
+    trail.Color = ColorSequence.new(COLORS.Purple)
     trail.Parent = hrp
     
-    Cache.Visuals[player.UserId .. "_trail"] = {trail = trail, att1 = att1, att2 = att2}
+    Cache.Visuals["localtrail"] = {trail = trail, att1 = att1, att2 = att2}
 end
 
 -- ========================================
 -- ===== PURPLE FOG =====
 -- ========================================
 
+local originalLighting = nil
+
 local function setupFog()
     if Settings.FogEnabled then
-        local originalFog = {
-            Brightness = Lighting.Brightness,
-            ClockTime = Lighting.ClockTime,
-            FogEnd = Lighting.FogEnd,
-            GlobalShadows = Lighting.GlobalShadows
-        }
+        if not originalLighting then
+            originalLighting = {
+                Brightness = Lighting.Brightness,
+                ClockTime = Lighting.ClockTime,
+                FogEnd = Lighting.FogEnd,
+                GlobalShadows = Lighting.GlobalShadows,
+                Ambient = Lighting.Ambient,
+                OutdoorAmbient = Lighting.OutdoorAmbient
+            }
+        end
         
         Lighting.Brightness = 1.5
         Lighting.ClockTime = 16
@@ -543,73 +492,85 @@ local function setupFog()
         Lighting.Ambient = COLORS.Purple
         Lighting.OutdoorAmbient = COLORS.Purple
         Lighting.GlobalShadows = false
-        
-        Cache.Connections["fog"] = function()
-            if not Settings.FogEnabled then
-                Lighting.Brightness = originalFog.Brightness
-                Lighting.ClockTime = originalFog.ClockTime
-                Lighting.FogEnd = originalFog.FogEnd
-                Lighting.GlobalShadows = originalFog.GlobalShadows
-                Lighting.Ambient = Color3.fromRGB(0, 0, 0)
-                Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
-            end
-        end
     else
-        local cleanup = Cache.Connections["fog"]
-        if cleanup then cleanup() end
-        Cache.Connections["fog"] = nil
+        if originalLighting then
+            Lighting.Brightness = originalLighting.Brightness
+            Lighting.ClockTime = originalLighting.ClockTime
+            Lighting.FogEnd = originalLighting.FogEnd
+            Lighting.GlobalShadows = originalLighting.GlobalShadows
+            Lighting.Ambient = originalLighting.Ambient
+            Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+        end
     end
 end
 
 -- ========================================
--- ===== PARTICLES =====
+-- ===== PARTICLES (ПО ВСЕЙ КАРТЕ) =====
 -- ========================================
+
+local particleSpawnConnection = nil
 
 local function spawnParticles()
     if not Settings.ParticlesEnabled then return end
     
-    for i = 1, 5 do
+    for i = 1, 3 do
         task.spawn(function()
             local particle = Instance.new("Part")
             particle.Shape = Enum.PartType.Ball
-            particle.Size = Vector3.new(0.5, 0.5, 0.5)
+            particle.Size = Vector3.new(0.3, 0.3, 0.3)
             particle.Material = Enum.Material.Neon
             particle.Color = COLORS.Purple
-            particle.Transparency = 0.3
+            particle.Transparency = 0.4
             particle.Anchored = true
             particle.CanCollide = false
             particle.CFrame = CFrame.new(
                 math.random(-500, 500),
-                math.random(50, 200),
+                math.random(50, 250),
                 math.random(-500, 500)
             )
             particle.Parent = workspace
             
-            local lifetime = math.random(3, 8)
+            Cache.Particles[particle] = true
+            
+            local lifetime = 15
             local startTime = tick()
             
+            -- Парящая частица (статична в воздухе)
             local conn
             conn = RunService.Heartbeat:Connect(function()
-                local elapsed = tick() - startTime
-                if elapsed >= lifetime or not particle or not particle.Parent then
+                if not Settings.ParticlesEnabled or not particle or not particle.Parent then
                     pcall(function() particle:Destroy() end)
+                    Cache.Particles[particle] = nil
                     safeDisconnect(conn)
                     return
                 end
                 
+                local elapsed = tick() - startTime
+                if elapsed >= lifetime then
+                    pcall(function() particle:Destroy() end)
+                    Cache.Particles[particle] = nil
+                    safeDisconnect(conn)
+                    return
+                end
+                
+                -- Медленное плавание в воздухе
                 particle.CFrame = particle.CFrame * CFrame.new(
-                    math.sin(elapsed) * 0.5,
-                    -0.3,
-                    math.cos(elapsed) * 0.5
+                    math.sin(elapsed * 0.3) * 0.01,
+                    0.02,
+                    math.cos(elapsed * 0.3) * 0.01
                 )
-                particle.Transparency = 0.3 + (elapsed / lifetime) * 0.7
+                
+                -- Постепенное исчезание в конце
+                if elapsed > lifetime * 0.8 then
+                    particle.Transparency = 0.4 + ((elapsed - lifetime * 0.8) / (lifetime * 0.2)) * 0.6
+                end
             end)
         end)
     end
 end
 
 -- ========================================
--- ===== SILENT AIM (НА МАРДЕРА) =====
+-- ===== SILENT AIM =====
 -- ========================================
 
 local function findAimTarget()
@@ -622,7 +583,6 @@ local function findAimTarget()
             if targetPos then
                 local screenPos, onScreen = Camera:WorldToScreenPoint(targetPos.Position)
                 if onScreen then
-                    local mousePos = Mouse.Hit.Position
                     local distance = (screenPos - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
                     
                     if distance < closestDistance then
@@ -668,75 +628,80 @@ local mainUpdateConnection = nil
 
 local function updateVisuals()
     for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not player.Character then continue end
-        
-        local role = getRole(player)
-        
-        -- ESP
-        if Settings.MurderESP and role == "Murder" then
-            createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP and role == "Sheriff" then
-            createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Innocent" then
-            createOrUpdateHighlight(player, COLORS.Innocent)
-        else
-            removeHighlight(player)
-        end
-        
-        -- Box ESP
-        if Settings.BoxMurder and role == "Murder" then
-            createBox(player, COLORS.Murder)
-        elseif Settings.BoxSheriff and role == "Sheriff" then
-            createBox(player, COLORS.Sheriff)
-        elseif Settings.BoxInnocent and role == "Innocent" then
-            createBox(player, COLORS.Innocent)
-        else
-            removeBox(player)
-        end
-        
-        -- Chams
-        if Settings.ChamsEnabled then
-            applyChams(player)
-        else
-            removeChams(player)
-        end
-        
-        -- Skeleton
-        if Settings.SkeletonESP then
-            if not Cache.Bones[player.UserId] then
-                createSkeletonForPlayer(player)
+        if player == LocalPlayer then
+            -- Локальный игрок
+            if Settings.ChamsEnabled then
+                applyChams(player, true)
+            else
+                removeChams(player)
             end
-        end
-        
-        -- Visuals
-        if Settings.JumpCircles then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Jump then
-                createJumpCircle(player)
+        else
+            -- Остальные игроки
+            if not player.Character then continue end
+            
+            local role = getRole(player)
+            
+            -- ESP
+            if Settings.MurderESP and role == "Murder" then
+                createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and role == "Sheriff" then
+                createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and role == "Innocent" then
+                createOrUpdateHighlight(player, COLORS.Innocent)
+            else
+                removeHighlight(player)
             end
-        end
-        
-        if Settings.ChinaHat then
-            if not player.Character:FindFirstChild("ChinaHat_Mesh") then
-                createChinaHat(player)
+            
+            -- Box ESP
+            if Settings.BoxMurder and role == "Murder" then
+                createBox(player, COLORS.Murder)
+            elseif Settings.BoxSheriff and role == "Sheriff" then
+                createBox(player, COLORS.Sheriff)
+            elseif Settings.BoxInnocent and role == "Innocent" then
+                createBox(player, COLORS.Innocent)
+            else
+                removeBox(player)
             end
-        end
-        
-        if Settings.Trails then
-            if not player.Character:FindFirstChild("MurderTrail") then
-                createTrail(player)
+            
+            -- Chams
+            if Settings.ChamsEnabled then
+                applyChams(player, false)
+            else
+                removeChams(player)
+            end
+            
+            -- Skeleton
+            if Settings.SkeletonESP then
+                if not Cache.Bones[player.UserId] then
+                    createSkeletonForPlayer(player)
+                end
+            end
+            
+            -- Jump Circles
+            if Settings.JumpCircles then
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid.Jump then
+                    createJumpCircle(player)
+                end
             end
         end
     end
     
-    -- Skeleton обновления
+    -- Обновление скелетов
     if Settings.SkeletonESP then
         updateAllSkeletons()
     end
     
-    -- Particles
-    if Settings.ParticlesEnabled and math.random(1, 10) == 1 then
-        spawnParticles()
+    -- Локальный трейл
+    if Settings.Trails then
+        if LocalPlayer.Character and not LocalPlayer.Character:FindFirstChild("LocalTrail") then
+            createLocalPlayerTrail()
+        end
+    else
+        if LocalPlayer.Character then
+            local trail = LocalPlayer.Character:FindFirstChild("LocalTrail")
+            if trail then pcall(function() trail:Destroy() end) end
+        end
     end
 end
 
@@ -747,12 +712,22 @@ local function startMainUpdate()
         local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or 
                          Settings.BoxMurder or Settings.BoxSheriff or Settings.BoxInnocent or
                          Settings.ChamsEnabled or Settings.SkeletonESP or Settings.JumpCircles or
-                         Settings.ChinaHat or Settings.Trails or Settings.ParticlesEnabled
+                         Settings.Trails or Settings.ParticlesEnabled
         
         if anyActive then
             updateVisuals()
         end
     end)
+    
+    -- Спавн частиц
+    if particleSpawnConnection then safeDisconnect(particleSpawnConnection) end
+    if Settings.ParticlesEnabled then
+        particleSpawnConnection = RunService.Heartbeat:Connect(function()
+            if Settings.ParticlesEnabled and math.random(1, 15) == 1 then
+                spawnParticles()
+            end
+        end)
+    end
 end
 
 -- ========================================
@@ -779,7 +754,6 @@ RageSection:Toggle({
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
             
-            -- Чистим старые
             for _, obj in ipairs(hrp:GetChildren()) do
                 if obj:IsA("BodyGyro") or obj:IsA("BodyVelocity") then obj:Destroy() end
             end
@@ -828,7 +802,9 @@ RageSection:Slider({
     Default = 80,
     Min = 10,
     Max = 200,
-    Callback = function(v) Settings.FlySpeed = v end
+    Callback = function(v) 
+        Settings.FlySpeed = v 
+    end
 })
 
 -- BUNNY HOP
@@ -883,7 +859,9 @@ RageSection:Slider({
     Default = 5,
     Min = 1,
     Max = 50,
-    Callback = function(v) Settings.SpinSpeed = v end
+    Callback = function(v) 
+        Settings.SpinSpeed = v 
+    end
 })
 
 -- SILENT AIM
@@ -901,7 +879,9 @@ RageSection:Slider({
     Default = 150,
     Min = 10,
     Max = 500,
-    Callback = function(v) Settings.SilentAimFOV = v end
+    Callback = function(v) 
+        Settings.SilentAimFOV = v 
+    end
 })
 
 -- ========================================
@@ -1044,21 +1024,19 @@ VisualSection:Toggle({
 
 -- CHAMS
 VisualSection:Toggle({
-    Title = "Chams (Purple All)",
+    Title = "Chams (Purple)",
     Default = false,
     Callback = function(v) Settings.ChamsEnabled = v startMainUpdate() end
 })
 
-VisualSection:Toggle({
-    Title = "Chams Murder Color",
-    Default = false,
-    Callback = function(v) Settings.ChamsMurder = v end
-})
-
-VisualSection:Toggle({
-    Title = "Chams Sheriff Color",
-    Default = false,
-    Callback = function(v) Settings.ChamsSheriff = v end
+VisualSection:Slider({
+    Title = "Chams Transparency",
+    Default = 0.2,
+    Min = 0,
+    Max = 1,
+    Callback = function(v) 
+        Settings.ChamsThickness = v 
+    end
 })
 
 -- SKELETON
@@ -1076,13 +1054,7 @@ VisualSection2:Toggle({
 })
 
 VisualSection2:Toggle({
-    Title = "China Hat",
-    Default = false,
-    Callback = function(v) Settings.ChinaHat = v startMainUpdate() end
-})
-
-VisualSection2:Toggle({
-    Title = "Trails",
+    Title = "Purple Trail",
     Default = false,
     Callback = function(v) Settings.Trails = v startMainUpdate() end
 })
@@ -1096,7 +1068,16 @@ VisualSection2:Toggle({
 VisualSection2:Toggle({
     Title = "Particles",
     Default = false,
-    Callback = function(v) Settings.ParticlesEnabled = v startMainUpdate() end
+    Callback = function(v) 
+        Settings.ParticlesEnabled = v 
+        startMainUpdate()
+        if not v then
+            for particle, _ in pairs(Cache.Particles) do
+                pcall(function() particle:Destroy() end)
+            end
+            Cache.Particles = {}
+        end
+    end
 })
 
 -- ========================================
@@ -1157,14 +1138,22 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v3.0",
-    Description = "Optimized & Working",
+    Title = "Murder Hub v4.0",
+    Description = "Purple Theme • Optimized",
     Icon = "crown"
 })
 
 SettingsSection:Button({
     Title = "Close UI",
     Callback = function() Window:Destroy() end
+})
+
+SettingsSection:Button({
+    Title = "Rejoin Game",
+    Callback = function()
+        local TeleportService = game:GetService("TeleportService")
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
 })
 
 -- ========================================
@@ -1199,9 +1188,9 @@ end)
 -- Startup
 startMainUpdate()
 
-print("✅ Murder Hub v3.0 Loaded!")
+print("✅ Murder Hub v4.0 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Murder Hub",
-    Text = "✅ v3.0 Loaded & Optimized!",
+    Text = "✅ v4.0 Loaded • Purple Theme!",
     Duration = 5
 })
