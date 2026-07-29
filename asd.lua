@@ -47,44 +47,21 @@ local Settings = {
     
     -- Chams
     ChamsEnabled = false,
-    ChamsMurder = false,
-    ChamsSheriff = false,
-    ChamsInnocent = false,
-    ChamsThickness = 0.2,
-    
-    -- Box
-    BoxMurder = false,
-    BoxSheriff = false,
-    BoxInnocent = false,
-    BoxThickness = 0.05,
     
     -- Visuals
     JumpCircles = false,
     Trails = false,
     FogEnabled = false,
-    
-    -- Particles
     ParticlesEnabled = false,
-    ParticleType = "rain",
-    ParticleCount = 50,
-    ParticleSize = 0.3,
-    ParticleSpeed = 1,
-    ParticleLifetime = 5,
+    
+    -- Particles (ФИКСИРОВАННЫЕ ЗНАЧЕНИЯ)
+    ParticleCount = 100,
+    ParticleRange = 50,
     
     -- Shaders
     BloomEnabled = false,
-    BloomIntensity = 1,
     ColorCorrectionEnabled = false,
-    ColorCorrectionTint = Color3.fromRGB(138, 43, 226),
-    ColorCorrectionSaturation = 1,
-    ColorCorrectionBrightness = 0,
-    BlurEnabled = false,
-    BlurSize = 10,
-    DepthOfFieldEnabled = false,
-    DepthOfFieldBlur = 5,
     VignetteEnabled = false,
-    VignetteIntensity = 0.3,
-    SunRaysEnabled = false,
     
     -- Sky
     CustomSkyId = "",
@@ -101,12 +78,12 @@ local Settings = {
     SpinBotEnabled = false,
     SpinSpeed = 5,
     SilentAimEnabled = false,
-    SilentAimFOV = 150,
     
     -- Combat
     NoclipEnabled = false,
     AntiFlingEnabled = false,
-    FOVChanger = 70
+    FOVChanger = 70,
+    FlingEnabled = false
 }
 
 -- ========================================
@@ -115,7 +92,6 @@ local Settings = {
 
 local Cache = {
     Highlights = {},
-    Boxes = {},
     Bones = {},
     Visuals = {},
     Connections = {},
@@ -232,7 +208,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== CHAMS (ЧЕРЕЗ СТЕНУ) =====
+-- ===== CHAMS =====
 -- ========================================
 
 local function applyChams(player)
@@ -253,7 +229,7 @@ local function applyChams(player)
             if Settings.ChamsEnabled then
                 part.Material = Enum.Material.Neon
                 part.Color = COLORS.Purple
-                part.Transparency = Settings.ChamsThickness
+                part.Transparency = 0.2
             end
         end
     end
@@ -293,149 +269,6 @@ local function clearAllChams()
         end
     end
     Cache.ChamsParts = {}
-end
-
--- ========================================
--- ===== BOX ESP (РАБОЧИЙ) =====
--- ========================================
-
-local boxUpdateConnection = nil
-
-local function updateBoxDisplay(player, color)
-    if not player or not player.Character then return end
-    
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local boxKey = "box_" .. player.UserId
-    local boxData = Cache.Boxes[boxKey]
-    
-    if not boxData then
-        -- Создаём 8 углов для box'а
-        local corners = {}
-        for i = 1, 8 do
-            local corner = Drawing.new("Line")
-            corner.Color = color
-            corner.Thickness = Settings.BoxThickness * 100
-            corner.Transparency = 0.7
-            corner.Visible = false
-            table.insert(corners, corner)
-        end
-        
-        boxData = {
-            corners = corners,
-            color = color,
-            lastUpdate = tick()
-        }
-        Cache.Boxes[boxKey] = boxData
-    else
-        boxData.color = color
-    end
-end
-
-local function drawBox3D(player, color)
-    if not player or not player.Character then return end
-    
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local boxKey = "box_" .. player.UserId
-    local boxData = Cache.Boxes[boxKey]
-    
-    if not boxData then return end
-    
-    local corners = boxData.corners
-    local size = Vector3.new(3, 6, 3)
-    local position = hrp.Position
-    
-    -- 8 углов куба
-    local offsets = {
-        Vector3.new(-size.X/2, -size.Y/2, -size.Z/2),
-        Vector3.new(size.X/2, -size.Y/2, -size.Z/2),
-        Vector3.new(size.X/2, size.Y/2, -size.Z/2),
-        Vector3.new(-size.X/2, size.Y/2, -size.Z/2),
-        Vector3.new(-size.X/2, -size.Y/2, size.Z/2),
-        Vector3.new(size.X/2, -size.Y/2, size.Z/2),
-        Vector3.new(size.X/2, size.Y/2, size.Z/2),
-        Vector3.new(-size.X/2, size.Y/2, size.Z/2),
-    }
-    
-    local screenPoints = {}
-    for i, offset in ipairs(offsets) do
-        local worldPos = position + offset
-        local screenPos, onScreen = Camera:WorldToScreenPoint(worldPos)
-        if onScreen then
-            screenPoints[i] = Vector2.new(screenPos.X, screenPos.Y)
-        else
-            screenPoints[i] = nil
-        end
-    end
-    
-    -- Рисуем линии между углами
-    if screenPoints[1] and screenPoints[2] then
-        corners[1].From = screenPoints[1]
-        corners[1].To = screenPoints[2]
-        corners[1].Visible = true
-    end
-    if screenPoints[2] and screenPoints[3] then
-        corners[2].From = screenPoints[2]
-        corners[2].To = screenPoints[3]
-        corners[2].Visible = true
-    end
-    if screenPoints[3] and screenPoints[4] then
-        corners[3].From = screenPoints[3]
-        corners[3].To = screenPoints[4]
-        corners[3].Visible = true
-    end
-    if screenPoints[4] and screenPoints[1] then
-        corners[4].From = screenPoints[4]
-        corners[4].To = screenPoints[1]
-        corners[4].Visible = true
-    end
-    
-    -- Верхние линии
-    if screenPoints[5] and screenPoints[6] then
-        corners[5].From = screenPoints[5]
-        corners[5].To = screenPoints[6]
-        corners[5].Visible = true
-    end
-    if screenPoints[6] and screenPoints[7] then
-        corners[6].From = screenPoints[6]
-        corners[6].To = screenPoints[7]
-        corners[6].Visible = true
-    end
-    if screenPoints[7] and screenPoints[8] then
-        corners[7].From = screenPoints[7]
-        corners[7].To = screenPoints[8]
-        corners[7].Visible = true
-    end
-    if screenPoints[8] and screenPoints[5] then
-        corners[8].From = screenPoints[8]
-        corners[8].To = screenPoints[5]
-        corners[8].Visible = true
-    end
-end
-
-local function removeBox(player)
-    local boxKey = "box_" .. player.UserId
-    local boxData = Cache.Boxes[boxKey]
-    if boxData then
-        for _, corner in ipairs(boxData.corners) do
-            pcall(function() corner:Remove() end)
-        end
-    end
-    Cache.Boxes[boxKey] = nil
-end
-
-local function clearAllBoxes()
-    for key, boxData in pairs(Cache.Boxes) do
-        if boxData and boxData.corners then
-            for _, corner in ipairs(boxData.corners) do
-                pcall(function() corner:Remove() end)
-            end
-        end
-    end
-    Cache.Boxes = {}
 end
 
 -- ========================================
@@ -521,7 +354,7 @@ local function clearAllSkeletons()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES =====
+-- ===== PURPLE GLOW JUMP CIRCLES =====
 -- ========================================
 
 local function createJumpCircle(player)
@@ -534,11 +367,18 @@ local function createJumpCircle(player)
     circle.Size = Vector3.new(0.1, 5, 5)
     circle.Material = Enum.Material.Neon
     circle.Color = COLORS.Purple
-    circle.Transparency = 0.3
+    circle.Transparency = 0.2
     circle.Anchored = true
     circle.CanCollide = false
     circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
     circle.Parent = workspace
+    
+    -- Добавляем свечение
+    local light = Instance.new("PointLight")
+    light.Brightness = 3
+    light.Color = COLORS.Purple
+    light.Range = 20
+    light.Parent = circle
     
     local startTime = tick()
     local lifeTime = 0.6
@@ -554,13 +394,14 @@ local function createJumpCircle(player)
         
         local alpha = elapsed / lifeTime
         circle.Size = Vector3.new(0.1, 5 + alpha * 8, 5 + alpha * 8)
-        circle.Transparency = 0.3 + alpha * 0.7
+        circle.Transparency = 0.2 + alpha * 0.8
+        light.Brightness = 3 * (1 - alpha)
         circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
     end)
 end
 
 -- ========================================
--- ===== TRAILS (ТОЛЬКО ЛОКАЛЬНЫЙ ИГРОК) =====
+-- ===== TRAILS (ЛОКАЛЬНЫЙ ИГРОК) =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -601,46 +442,18 @@ local function createLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== ОПТИМИЗИРОВАННАЯ СИСТЕМА ЧАСТИЦ =====
+-- ===== СИСТЕМА ЧАСТИЦ (100 ШТ / 50М) =====
 -- ========================================
 
 local particleSpawnConnection = nil
 local particleUpdateConnection = nil
 local activeParticles = {}
 
-local PARTICLE_PRESETS = {
-    rain = {
-        velocity = Vector3.new(0, -15, 0),
-        size = 0.2,
-        lifetime = 8,
-        color = COLORS.Purple,
-    },
-    snow = {
-        velocity = Vector3.new(0.5, -5, 0.5),
-        size = 0.4,
-        lifetime = 10,
-        color = Color3.fromRGB(200, 200, 255),
-    },
-    sparks = {
-        velocity = Vector3.new(10, 15, 10),
-        size = 0.15,
-        lifetime = 3,
-        color = COLORS.Purple,
-    },
-    magic = {
-        velocity = Vector3.new(5, 8, 5),
-        size = 0.25,
-        lifetime = 5,
-        color = COLORS.Purple,
-    }
-}
-
-local function createOptimizedParticle(position, preset)
+local function createOptimizedParticle(position)
     local att = Instance.new("Attachment")
     att.Parent = Workspace
     att.WorldPosition = position
     
-    -- Создаём визуальный трейл вместо Part для оптимизации
     local att2 = Instance.new("Attachment")
     att2.Parent = Workspace
     att2.WorldPosition = position + Vector3.new(0.1, 0, 0)
@@ -648,12 +461,12 @@ local function createOptimizedParticle(position, preset)
     local trail = Instance.new("Trail")
     trail.Attachment0 = att
     trail.Attachment1 = att2
-    trail.Lifetime = preset.lifetime
+    trail.Lifetime = 8
     trail.MinLength = 0
     trail.FaceCamera = true
     trail.LightEmission = 1
     trail.LightInfluence = 0
-    trail.Color = ColorSequence.new(preset.color)
+    trail.Color = ColorSequence.new(COLORS.Purple)
     trail.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0),
         NumberSequenceKeypoint.new(1, 1)
@@ -664,9 +477,9 @@ local function createOptimizedParticle(position, preset)
         att = att,
         att2 = att2,
         trail = trail,
-        lifetime = preset.lifetime,
+        lifetime = 8,
         startTime = tick(),
-        velocity = preset.velocity,
+        velocity = Vector3.new(math.random(-10, 10), -5, math.random(-10, 10)),
         position = position
     }
     
@@ -688,14 +501,12 @@ local function updateParticles()
             end)
             table.insert(toRemove, i)
         else
-            -- Обновляем позицию частицы
             particle.position = particle.position + particle.velocity * 0.016
             particle.att.WorldPosition = particle.position
             particle.att2.WorldPosition = particle.position + Vector3.new(0.1, 0, 0)
         end
     end
     
-    -- Удаляем частицы в обратном порядке
     for i = #toRemove, 1, -1 do
         table.remove(activeParticles, toRemove[i])
     end
@@ -704,23 +515,14 @@ end
 local function spawnParticles()
     if not Settings.ParticlesEnabled then return end
     
-    local preset = PARTICLE_PRESETS[Settings.ParticleType] or PARTICLE_PRESETS.rain
-    
-    for i = 1, math.ceil(Settings.ParticleCount / 100) do
+    for i = 1, 3 do
         local randomPos = Vector3.new(
-            math.random(-500, 500),
-            math.random(100, 300),
-            math.random(-500, 500)
+            math.random(-Settings.ParticleRange, Settings.ParticleRange),
+            math.random(50, 150),
+            math.random(-Settings.ParticleRange, Settings.ParticleRange)
         )
         
-        local modifiedPreset = {
-            velocity = preset.velocity * Settings.ParticleSpeed,
-            size = Settings.ParticleSize,
-            lifetime = Settings.ParticleLifetime,
-            color = Settings.ParticleType == "magic" and COLORS.Purple or preset.color
-        }
-        
-        createOptimizedParticle(randomPos, modifiedPreset)
+        createOptimizedParticle(randomPos)
     end
 end
 
@@ -736,31 +538,29 @@ local function clearAllParticles()
 end
 
 -- ========================================
--- ===== POST-EFFECTS (ШЕЙДЕРЫ) =====
+-- ===== POST-EFFECTS =====
 -- ========================================
 
-local function setupBloom(intensity)
-    if Settings.BloomEnabled then
-        Lighting.Brightness = 1.5 + (intensity * 0.5)
+local function setupBloom(enabled)
+    if enabled then
+        Lighting.Brightness = 1.5
     else
         Lighting.Brightness = 1
     end
 end
 
-local function setupColorCorrection(tint, saturation, brightness)
-    if Settings.ColorCorrectionEnabled then
-        Lighting.Ambient = tint
-        Lighting.OutdoorAmbient = tint
-        Lighting.Brightness = 1 + brightness
+local function setupColorCorrection(enabled)
+    if enabled then
+        Lighting.Ambient = COLORS.Purple
+        Lighting.OutdoorAmbient = COLORS.Purple
     else
         Lighting.Ambient = Color3.fromRGB(0, 0, 0)
         Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
-        Lighting.Brightness = 1
     end
 end
 
-local function setupVignette(intensity)
-    if Settings.VignetteEnabled then
+local function setupVignette(enabled)
+    if enabled then
         if not Cache.PostEffects["vignette"] then
             local screenGui = Instance.new("ScreenGui")
             screenGui.Name = "VignetteEffect"
@@ -774,14 +574,6 @@ local function setupVignette(intensity)
             vignette.BackgroundTransparency = 0.5
             vignette.BorderSizePixel = 0
             vignette.Parent = screenGui
-            
-            -- Радиальный градиент (через UIGradient)
-            local gradient = Instance.new("UIGradient")
-            gradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
-            })
-            gradient.Parent = vignette
             
             screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
             Cache.PostEffects["vignette"] = screenGui
@@ -832,9 +624,7 @@ local function createCrosshair()
     crosshairGui.IgnoreGuiInset = true
     
     local size = 30
-    local center = 1920 / 2
     
-    -- Горизонтальная линия
     local horizontal = Instance.new("Frame")
     horizontal.Size = UDim2.new(0, size, 0, 2)
     horizontal.Position = UDim2.new(0.5, -size/2, 0.5, 0)
@@ -842,7 +632,6 @@ local function createCrosshair()
     horizontal.BorderSizePixel = 0
     horizontal.Parent = crosshairGui
     
-    -- Вертикальная линия
     local vertical = Instance.new("Frame")
     vertical.Size = UDim2.new(0, 2, 0, size)
     vertical.Position = UDim2.new(0.5, 0, 0.5, -size/2)
@@ -850,7 +639,6 @@ local function createCrosshair()
     vertical.BorderSizePixel = 0
     vertical.Parent = crosshairGui
     
-    -- Центр
     local center_dot = Instance.new("Frame")
     center_dot.Size = UDim2.new(0, 4, 0, 4)
     center_dot.Position = UDim2.new(0.5, -2, 0.5, -2)
@@ -862,27 +650,71 @@ local function createCrosshair()
 end
 
 -- ========================================
--- ===== KILL INDICATOR =====
+-- ===== FLING (OPEN SOURCE) =====
 -- ========================================
 
-local function notifyKill(victim)
-    if not Settings.KillIndicatorEnabled then return end
-    
-    StarterGui:SetCore("SendNotification", {
-        Title = "💀 KILL",
-        Text = "Убил: " .. victim.Name,
-        Duration = 3,
-        Icon = "rbxasset://textures/face.png"
-    })
-    
-    if Settings.KillSound then
-        -- Воспроизводим звук убийства
-        local sound = Instance.new("Sound")
-        sound.SoundId = "rbxassetid://6947876300"
-        sound.Volume = 0.5
-        sound.Parent = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or Workspace
-        sound:Play()
-        game:GetService("Debris"):AddItem(sound, 2)
+local flingConnection = nil
+
+local function startFling()
+    if Settings.FlingEnabled then
+        local character = LocalPlayer.Character
+        if not character then return end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        
+        if not humanoid or not hrp then return end
+        
+        pcall(function()
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, false)
+            humanoid:ChangeState(Enum.HumanoidStateType.Flying)
+        end)
+        
+        flingConnection = RunService.Heartbeat:Connect(function()
+            if not Settings.FlingEnabled or not character or not hrp.Parent then
+                pcall(function()
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+                end)
+                safeDisconnect(flingConnection)
+                return
+            end
+            
+            hrp.CFrame = hrp.CFrame + (hrp.CFrame.LookVector * Vector3.new(100, 100, 100))
+            hrp.Velocity = (hrp.CFrame.LookVector * Vector3.new(100, 100, 100)) * 249
+            
+            pcall(function()
+                humanoid:ChangeState(Enum.HumanoidStateType.Flying)
+            end)
+        end)
+    else
+        safeDisconnect(flingConnection)
+        local character = LocalPlayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                pcall(function()
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+                end)
+            end
+        end
     end
 end
 
@@ -916,16 +748,6 @@ local function updateVisuals()
                 removeHighlight(player)
             end
             
-            -- Box ESP
-            if (Settings.BoxMurder and role == "Murder") or
-               (Settings.BoxSheriff and role == "Sheriff") or
-               (Settings.BoxInnocent and role == "Innocent") then
-                updateBoxDisplay(player, getRoleColor(player))
-                drawBox3D(player, getRoleColor(player))
-            else
-                removeBox(player)
-            end
-            
             -- Chams
             if Settings.ChamsEnabled then
                 applyChams(player)
@@ -950,12 +772,10 @@ local function updateVisuals()
         end
     end
     
-    -- Skeleton обновление
     if Settings.SkeletonESP then
         updateAllSkeletons()
     end
     
-    -- Локальный трейл
     if Settings.Trails then
         if LocalPlayer.Character and not LocalPlayer.Character:FindFirstChild("LocalTrail") then
             createLocalPlayerTrail()
@@ -972,8 +792,7 @@ local function startMainUpdate()
     if mainUpdateConnection then safeDisconnect(mainUpdateConnection) end
     
     mainUpdateConnection = RunService.Heartbeat:Connect(function()
-        local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or 
-                         Settings.BoxMurder or Settings.BoxSheriff or Settings.BoxInnocent or
+        local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or
                          Settings.ChamsEnabled or Settings.SkeletonESP or Settings.JumpCircles or
                          Settings.Trails
         
@@ -982,13 +801,12 @@ local function startMainUpdate()
         end
     end)
     
-    -- Particles spawn
     if particleSpawnConnection then safeDisconnect(particleSpawnConnection) end
     if particleUpdateConnection then safeDisconnect(particleUpdateConnection) end
     
     if Settings.ParticlesEnabled then
         particleSpawnConnection = RunService.Heartbeat:Connect(function()
-            if Settings.ParticlesEnabled and math.random(1, 20) == 1 then
+            if Settings.ParticlesEnabled and math.random(1, 10) == 1 then
                 spawnParticles()
             end
         end)
@@ -1066,16 +884,6 @@ RageSection:Toggle({
     end
 })
 
-RageSection:Slider({
-    Title = "Fly Speed",
-    Default = 80,
-    Min = 10,
-    Max = 200,
-    Callback = function(v) 
-        Settings.FlySpeed = v 
-    end
-})
-
 -- BUNNY HOP
 local bhopConn = nil
 
@@ -1123,13 +931,13 @@ RageSection:Toggle({
     end
 })
 
-RageSection:Slider({
-    Title = "Spin Speed",
-    Default = 5,
-    Min = 1,
-    Max = 50,
-    Callback = function(v) 
-        Settings.SpinSpeed = v 
+-- FLING (OPEN SOURCE)
+RageSection:Toggle({
+    Title = "Super Fling",
+    Default = false,
+    Callback = function(value)
+        Settings.FlingEnabled = value
+        startFling()
     end
 })
 
@@ -1213,25 +1021,12 @@ CombatSection:Button({
     end
 })
 
--- FOV
-CombatSection:Slider({
-    Title = "FOV",
-    Default = 70,
-    Min = 50,
-    Max = 120,
-    Callback = function(v)
-        Settings.FOVChanger = v
-        Camera.FieldOfView = v
-    end
-})
-
 -- ========================================
 -- ===== VISUAL TAB =====
 -- ========================================
 
 local VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" })
 local VisualSection = VisualTab:Section({ Title = "ESP", Side = "Left" })
-local VisualSection2 = VisualTab:Section({ Title = "Effects", Side = "Right" })
 
 -- ESP
 VisualSection:Toggle({
@@ -1252,50 +1047,11 @@ VisualSection:Toggle({
     Callback = function(v) Settings.InnocentESP = v startMainUpdate() end
 })
 
--- BOX ESP
-VisualSection:Toggle({
-    Title = "Box Murder",
-    Default = false,
-    Callback = function(v) Settings.BoxMurder = v startMainUpdate() end
-})
-
-VisualSection:Toggle({
-    Title = "Box Sheriff",
-    Default = false,
-    Callback = function(v) Settings.BoxSheriff = v startMainUpdate() end
-})
-
-VisualSection:Toggle({
-    Title = "Box Innocent",
-    Default = false,
-    Callback = function(v) Settings.BoxInnocent = v startMainUpdate() end
-})
-
-VisualSection:Slider({
-    Title = "Box Thickness",
-    Default = 0.05,
-    Min = 0.01,
-    Max = 0.2,
-    Callback = function(v) 
-        Settings.BoxThickness = v 
-    end
-})
-
 -- CHAMS
 VisualSection:Toggle({
     Title = "Chams (Purple)",
     Default = false,
     Callback = function(v) Settings.ChamsEnabled = v startMainUpdate() end
-})
-
-VisualSection:Slider({
-    Title = "Chams Transparency",
-    Default = 0.2,
-    Min = 0,
-    Max = 1,
-    Callback = function(v) 
-        Settings.ChamsThickness = v 
-    end
 })
 
 -- SKELETON
@@ -1306,19 +1062,19 @@ VisualSection:Toggle({
 })
 
 -- EFFECTS
-VisualSection2:Toggle({
+VisualSection:Toggle({
     Title = "Jump Circles",
     Default = false,
     Callback = function(v) Settings.JumpCircles = v startMainUpdate() end
 })
 
-VisualSection2:Toggle({
+VisualSection:Toggle({
     Title = "Purple Trail",
     Default = false,
     Callback = function(v) Settings.Trails = v startMainUpdate() end
 })
 
-VisualSection2:Toggle({
+VisualSection:Toggle({
     Title = "Crosshair",
     Default = false,
     Callback = function(v) 
@@ -1336,7 +1092,7 @@ VisualSection2:Toggle({
 -- ========================================
 
 local ParticlesTab = Window:Tab({ Title = "Particles", Icon = "cloud" })
-local ParticlesSection = ParticlesTab:Section({ Title = "Particle Settings", Side = "Left" })
+local ParticlesSection = ParticlesTab:Section({ Title = "Particles (100шт / 50м)", Side = "Left" })
 
 ParticlesSection:Toggle({
     Title = "Particles",
@@ -1350,52 +1106,12 @@ ParticlesSection:Toggle({
     end
 })
 
-ParticlesSection:Dropdown({
-    Title = "Particle Type",
-    Default = "rain",
-    Options = {"rain", "snow", "sparks", "magic"},
-    Callback = function(v) Settings.ParticleType = v end
-})
-
-ParticlesSection:Slider({
-    Title = "Particle Count",
-    Default = 50,
-    Min = 10,
-    Max = 200,
-    Callback = function(v) Settings.ParticleCount = v end
-})
-
-ParticlesSection:Slider({
-    Title = "Particle Size",
-    Default = 0.3,
-    Min = 0.1,
-    Max = 1,
-    Callback = function(v) Settings.ParticleSize = v end
-})
-
-ParticlesSection:Slider({
-    Title = "Particle Speed",
-    Default = 1,
-    Min = 0.1,
-    Max = 5,
-    Callback = function(v) Settings.ParticleSpeed = v end
-})
-
-ParticlesSection:Slider({
-    Title = "Particle Lifetime",
-    Default = 5,
-    Min = 1,
-    Max = 20,
-    Callback = function(v) Settings.ParticleLifetime = v end
-})
-
 -- ========================================
 -- ===== SHADERS TAB =====
 -- ========================================
 
 local ShadersTab = Window:Tab({ Title = "Shaders", Icon = "wand" })
 local ShadersSection = ShadersTab:Section({ Title = "Post-Effects", Side = "Left" })
-local ShadersSection2 = ShadersTab:Section({ Title = "Color", Side = "Right" })
 
 -- BLOOM
 ShadersSection:Toggle({
@@ -1403,39 +1119,17 @@ ShadersSection:Toggle({
     Default = false,
     Callback = function(v) 
         Settings.BloomEnabled = v 
-        setupBloom(Settings.BloomIntensity)
-    end
-})
-
-ShadersSection:Slider({
-    Title = "Bloom Intensity",
-    Default = 1,
-    Min = 0,
-    Max = 5,
-    Callback = function(v) 
-        Settings.BloomIntensity = v 
-        if Settings.BloomEnabled then setupBloom(v) end
+        setupBloom(v)
     end
 })
 
 -- COLOR CORRECTION
-ShadersSection2:Toggle({
+ShadersSection:Toggle({
     Title = "Color Correction",
     Default = false,
     Callback = function(v) 
         Settings.ColorCorrectionEnabled = v 
-        setupColorCorrection(Settings.ColorCorrectionTint, Settings.ColorCorrectionSaturation, Settings.ColorCorrectionBrightness)
-    end
-})
-
-ShadersSection2:Slider({
-    Title = "Brightness",
-    Default = 0,
-    Min = -1,
-    Max = 1,
-    Callback = function(v) 
-        Settings.ColorCorrectionBrightness = v 
-        if Settings.ColorCorrectionEnabled then setupColorCorrection(Settings.ColorCorrectionTint, Settings.ColorCorrectionSaturation, v) end
+        setupColorCorrection(v)
     end
 })
 
@@ -1445,17 +1139,7 @@ ShadersSection:Toggle({
     Default = false,
     Callback = function(v) 
         Settings.VignetteEnabled = v 
-        setupVignette(Settings.VignetteIntensity)
-    end
-})
-
-ShadersSection:Slider({
-    Title = "Vignette Intensity",
-    Default = 0.3,
-    Min = 0,
-    Max = 1,
-    Callback = function(v) 
-        Settings.VignetteIntensity = v 
+        setupVignette(v)
     end
 })
 
@@ -1514,8 +1198,8 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "Murder Hub v5.0",
-    Description = "Advanced • Fully Featured",
+    Title = "Murder Hub v6.0",
+    Description = "Final Edition",
     Icon = "crown"
 })
 
@@ -1548,7 +1232,6 @@ end)
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     clearAllHighlights()
-    clearAllBoxes()
     clearAllChams()
     clearAllSkeletons()
     
@@ -1561,9 +1244,9 @@ end)
 
 startMainUpdate()
 
-print("✅ Murder Hub v5.0 Loaded!")
+print("✅ Murder Hub v6.0 Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Murder Hub",
-    Text = "✅ v5.0 Complete Edition!",
+    Text = "✅ v6.0 Final Edition!",
     Duration = 5
 })
