@@ -1,5 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v3.0 HARDCORE =====
+-- ===== PLANT HUB v3.0 FINAL =====
 -- ========================================
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -48,7 +48,6 @@ local Settings = {
     InnocentESP = false,
     SkeletonESP = false,
     ChamsEnabled = false,
-    ChamsThroughWalls = false,
     JumpCircles = false,
     Trails = false,
     ParticlesEnabled = false,
@@ -71,6 +70,7 @@ local Settings = {
     AutoFarmCoinLimit = 40,
     AutoFarmCoinDelay = 0.15,
     AutoRespawn = false,
+    TracersEnabled = false,
 }
 
 -- ========================================
@@ -92,7 +92,7 @@ local Cache = {
     AutoFarmConnection = nil,
     CurrentTween = nil,
     XRayParts = {},
-    ChamsESP = {},
+    Tracers = {},
 }
 
 local COLORS = {
@@ -163,7 +163,60 @@ local function getRoleColor(player)
 end
 
 -- ========================================
--- ===== CHAMS ЧЕРЕЗ СТЕНЫ + ДИСТАНЦИЯ =====
+-- ===== TRACERS (ЛИНИИ К ИГРОКАМ) =====
+-- ========================================
+
+local function createTracer(player)
+    if not player or player == LocalPlayer then return end
+    if Cache.Tracers[player.UserId] then return end
+
+    local line = Drawing.new("Line")
+    line.Thickness = 2
+    line.Transparency = 0.8
+    line.Visible = false
+    line.Color = getRoleColor(player)
+
+    Cache.Tracers[player.UserId] = line
+end
+
+local function updateTracers()
+    for userId, line in pairs(Cache.Tracers) do
+        local player = Players:GetPlayerByUserId(userId)
+        if not player or not player.Character or not Settings.TracersEnabled then
+            line.Visible = false
+            continue
+        end
+
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            line.Visible = false
+            continue
+        end
+
+        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen or screenPos.Z < 0 then
+            line.Visible = false
+            continue
+        end
+
+        -- Линия от нижней части экрана к игроку
+        local bottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+        line.From = bottom
+        line.To = Vector2.new(screenPos.X, screenPos.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
+    end
+end
+
+local function clearAllTracers()
+    for userId, line in pairs(Cache.Tracers) do
+        pcall(function() line:Remove() end)
+    end
+    Cache.Tracers = {}
+end
+
+-- ========================================
+-- ===== CHAMS (ФИОЛЕТОВЫЕ ЧЕРЕЗ СТЕНЫ) =====
 -- ========================================
 
 local function cacheCharacterParts(player)
@@ -181,57 +234,8 @@ local function cacheCharacterParts(player)
     Cache.ChamsPartsList[player.UserId] = list
 end
 
--- Функция для создания текста расстояния
-local function createDistanceText(player)
-    if not player or not player.Character then return end
-    local char = player.Character
-    local head = char:FindFirstChild("Head")
-    if not head then return end
-
-    -- Удаляем старый текст
-    local oldText = char:FindFirstChild("ChamsDistanceText")
-    if oldText then oldText:Destroy() end
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ChamsDistanceText"
-    billboard.Size = UDim2.new(0, 100, 0, 30)
-    billboard.Adornee = head
-    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = char
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.TextStrokeTransparency = 0.3
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Parent = billboard
-
-    Cache.ChamsESP[player.UserId] = {billboard = billboard, label = label}
-end
-
-local function updateDistanceText(player)
-    if not player or not player.Character then return end
-    local char = player.Character
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp or not myHrp then return end
-
-    local dist = (myHrp.Position - hrp.Position).Magnitude
-    local data = Cache.ChamsESP[player.UserId]
-    if data and data.label then
-        data.label.Text = string.format("%.1f studs", dist)
-        -- Цвет текста в зависимости от роли
-        data.label.TextColor3 = getRoleColor(player)
-    end
-end
-
 local function applyChams(player)
     if not player or not player.Character then return end
-    local char = player.Character
     local list = Cache.ChamsPartsList[player.UserId]
     if not list then
         cacheCharacterParts(player)
@@ -239,38 +243,20 @@ local function applyChams(player)
         if not list then return end
     end
 
-    -- Создаём текст расстояния если включено
-    if Settings.ChamsEnabled and not Cache.ChamsESP[player.UserId] then
-        createDistanceText(player)
-    end
-
     for part, _ in pairs(list) do
         if part and part.Parent then
             part.Material = Enum.Material.ForceField
-            part.Color = getRoleColor(player)
-            if Settings.ChamsThroughWalls then
-                part.Transparency = 0.2
-                part.LocalTransparencyModifier = 0.1
-            else
-                part.Transparency = 0.3
-                part.LocalTransparencyModifier = 1
-            end
+            part.Color = COLORS.Purple
+            part.Transparency = 0.15
+            part.LocalTransparencyModifier = 0 -- ВИДНЫ ЧЕРЕЗ СТЕНЫ
         end
     end
 end
 
 local function removeChams(player)
     if not player or not player.Character then return end
-    local char = player.Character
     local list = Cache.ChamsPartsList[player.UserId]
     if not list then return end
-
-    -- Удаляем текст расстояния
-    local espData = Cache.ChamsESP[player.UserId]
-    if espData then
-        pcall(function() espData.billboard:Destroy() end)
-        Cache.ChamsESP[player.UserId] = nil
-    end
 
     for part, data in pairs(list) do
         if part and part.Parent then
@@ -299,12 +285,6 @@ local function clearAllChams()
         end
     end
     Cache.ChamsPartsList = {}
-    Cache.ChamsParts = {}
-
-    for userId, espData in pairs(Cache.ChamsESP) do
-        pcall(function() espData.billboard:Destroy() end)
-    end
-    Cache.ChamsESP = {}
 end
 
 -- ========================================
@@ -414,7 +394,6 @@ local function createCrosshair()
     crosshairGui.IgnoreGuiInset = true
     crosshairGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    -- Используем Unicode символ ꩜
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0, 50, 0, 50)
     label.Position = UDim2.new(0.5, -25, 0.5, -25)
@@ -429,7 +408,6 @@ local function createCrosshair()
 
     crosshairGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- Убираем ShiftLock текстуру
     if not Settings.CrosshairEnabled then
         safeDisconnect(shiftLockConn)
         return
@@ -441,13 +419,11 @@ local function createCrosshair()
             shiftLockConn = nil
             return
         end
-        -- Убираем стандартный ShiftLock
         local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
         if shiftLock then
             shiftLock.Enabled = false
             shiftLock.ResetOnSpawn = false
         end
-        -- Убираем другие текстурки прицела
         for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
             if gui.Name:lower():find("crosshair") or gui.Name:lower():find("aim") then
                 if gui ~= crosshairGui then
@@ -735,12 +711,10 @@ local function collectCoin(coin)
     return success
 end
 
--- АВТОРЕСПАВН при полном баге
 local function autoRespawn()
     if not Settings.AutoRespawn then return end
     local coinBag = getCurrentCoins()
     if coinBag >= Settings.AutoFarmCoinLimit then
-        -- Ищем кнопку респавна
         local respawnBtn = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
         if respawnBtn then
             local btn = respawnBtn:FindFirstChild("Game")
@@ -1104,12 +1078,21 @@ local function updateVisuals()
                     removeChams(player)
                 end
             end
-        end
 
-        -- Обновляем расстояние для чамсов
-        if Settings.ChamsEnabled and Cache.ChamsESP[player.UserId] then
-            updateDistanceText(player)
+            -- Создаём трассеры
+            if Settings.TracersEnabled then
+                if not Cache.Tracers[player.UserId] then
+                    createTracer(player)
+                end
+            end
         end
+    end
+
+    -- Обновляем трассеры
+    if Settings.TracersEnabled then
+        updateTracers()
+    else
+        clearAllTracers()
     end
 
     if Settings.Trails then
@@ -1135,7 +1118,7 @@ local function startMainUpdate()
 
     mainUpdateConnection = RunService.Heartbeat:Connect(function()
         local anyActive = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP or
-                          Settings.ChamsEnabled or Settings.Trails
+                          Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
 
         if anyActive then
             updateVisuals()
@@ -1182,6 +1165,139 @@ local function setupSheriffDeadNotif()
             end
         end)
     end)
+end
+
+-- ========================================
+-- ===== SKELETON ESP =====
+-- ========================================
+
+local SKELETON_BONES = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
+    {"UpperTorso", "LowerTorso"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"},
+}
+
+local function cacheBoneParts(player)
+    if not player or not player.Character then return end
+    local parts = {}
+    for _, bone in ipairs(SKELETON_BONES) do
+        parts[bone[1]] = player.Character:FindFirstChild(bone[1])
+        parts[bone[2]] = player.Character:FindFirstChild(bone[2])
+    end
+    Cache.BoneParts[player.UserId] = parts
+end
+
+local function createSkeletonForPlayer(player)
+    if not player or player == LocalPlayer or not player.Character then return end
+    if Cache.Bones[player.UserId] then return end
+
+    cacheBoneParts(player)
+
+    local bones = {}
+    for _, bonePair in ipairs(SKELETON_BONES) do
+        local line = Drawing.new("Line")
+        line.Thickness = 2
+        line.Transparency = 0.8
+        line.Visible = false
+        table.insert(bones, {pair = bonePair, line = line})
+    end
+
+    Cache.Bones[player.UserId] = bones
+end
+
+local function updateSkeletonBone(player, bone1Name, bone2Name, line)
+    if not player or not player.Character then
+        line.Visible = false
+        return false
+    end
+
+    local parts = Cache.BoneParts[player.UserId]
+    if not parts then
+        cacheBoneParts(player)
+        parts = Cache.BoneParts[player.UserId]
+        if not parts then
+            line.Visible = false
+            return false
+        end
+    end
+
+    local bone1 = parts[bone1Name]
+    local bone2 = parts[bone2Name]
+
+    if not bone1 or not bone1.Parent then
+        bone1 = player.Character:FindFirstChild(bone1Name)
+        if bone1 then parts[bone1Name] = bone1 end
+    end
+    if not bone2 or not bone2.Parent then
+        bone2 = player.Character:FindFirstChild(bone2Name)
+        if bone2 then parts[bone2Name] = bone2 end
+    end
+
+    if not bone1 or not bone2 then
+        line.Visible = false
+        return false
+    end
+
+    local s1, p1 = Camera:WorldToScreenPoint(bone1.Position)
+    local s2, p2 = Camera:WorldToScreenPoint(bone2.Position)
+
+    if s1.Z > 0 and s2.Z > 0 then
+        line.From = Vector2.new(p1.X, p1.Y)
+        line.To = Vector2.new(p2.X, p2.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
+        return true
+    else
+        line.Visible = false
+        return false
+    end
+end
+
+local function updateAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        local player = Players:GetPlayerByUserId(userId)
+        if not player or not Settings.SkeletonESP then
+            for _, bone in ipairs(bones) do
+                pcall(function() bone.line:Remove() end)
+            end
+            Cache.Bones[userId] = nil
+            Cache.BoneParts[userId] = nil
+        else
+            for _, bone in ipairs(bones) do
+                updateSkeletonBone(player, bone.pair[1], bone.pair[2], bone.line)
+            end
+        end
+    end
+end
+
+local function clearAllSkeletons()
+    for userId, bones in pairs(Cache.Bones) do
+        for _, bone in ipairs(bones) do
+            pcall(function() bone.line:Remove() end)
+        end
+    end
+    Cache.Bones = {}
+    Cache.BoneParts = {}
+end
+
+-- Восстанавливаем скелетон в апдейт
+local oldUpdateVisuals = updateVisuals
+updateVisuals = function()
+    oldUpdateVisuals()
+    if Settings.SkeletonESP then
+        updateAllSkeletons()
+    end
 end
 
 -- ========================================
@@ -1388,33 +1504,18 @@ VisualSection:Toggle({
 })
 
 VisualSection:Toggle({
-    Title = "Chams (Through Walls + Distance)",
+    Title = "Chams (Purple, Through Walls)",
     Default = false,
     Callback = function(v)
         Settings.ChamsEnabled = v
         if v then
             for _, player in ipairs(Players:GetPlayers()) do
                 cacheCharacterParts(player)
-                createDistanceText(player)
             end
         else
             clearAllChams()
         end
         startMainUpdate()
-    end
-})
-
-VisualSection:Toggle({
-    Title = "Chams Through Walls (Full X-Ray)",
-    Default = false,
-    Callback = function(v)
-        Settings.ChamsThroughWalls = v
-        -- Переприменяем чамсы
-        if Settings.ChamsEnabled then
-            for _, player in ipairs(Players:GetPlayers()) do
-                applyChams(player)
-            end
-        end
     end
 })
 
@@ -1429,6 +1530,24 @@ VisualSection:Toggle({
             for _, player in ipairs(Players:GetPlayers()) do
                 createSkeletonForPlayer(player)
             end
+        end
+        startMainUpdate()
+    end
+})
+
+VisualSection2:Toggle({
+    Title = "Tracers (Lines to Players)",
+    Default = false,
+    Callback = function(v)
+        Settings.TracersEnabled = v
+        if v then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    createTracer(player)
+                end
+            end
+        else
+            clearAllTracers()
         end
         startMainUpdate()
     end
@@ -1485,7 +1604,6 @@ VisualSection2:Toggle({
             if crosshairGui then crosshairGui:Destroy() crosshairGui = nil end
             safeDisconnect(shiftLockConn)
             shiftLockConn = nil
-            -- Включаем обратно ShiftLock
             local shiftLock = LocalPlayer.PlayerGui:FindFirstChild("ShiftLock")
             if shiftLock then
                 shiftLock.Enabled = true
@@ -1607,7 +1725,7 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "gear" })
 local SettingsSection = SettingsTab:Section({ Title = "Settings", Side = "Left" })
 
 SettingsSection:Label({
-    Title = "PlanetHub v3.0",
+    Title = "PlanetHub v3.0 FINAL",
     Description = "By MMV and MM2",
     Icon = "crown"
 })
@@ -1626,139 +1744,6 @@ SettingsSection:Button({
 })
 
 -- ========================================
--- ===== SKELETON ESP (восстановлен) =====
--- ========================================
-
-local SKELETON_BONES = {
-    {"Head", "UpperTorso"},
-    {"UpperTorso", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"RightLowerArm", "RightHand"},
-    {"UpperTorso", "LowerTorso"},
-    {"LowerTorso", "LeftUpperLeg"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"},
-}
-
-local function cacheBoneParts(player)
-    if not player or not player.Character then return end
-    local parts = {}
-    for _, bone in ipairs(SKELETON_BONES) do
-        parts[bone[1]] = player.Character:FindFirstChild(bone[1])
-        parts[bone[2]] = player.Character:FindFirstChild(bone[2])
-    end
-    Cache.BoneParts[player.UserId] = parts
-end
-
-local function createSkeletonForPlayer(player)
-    if not player or player == LocalPlayer or not player.Character then return end
-    if Cache.Bones[player.UserId] then return end
-
-    cacheBoneParts(player)
-
-    local bones = {}
-    for _, bonePair in ipairs(SKELETON_BONES) do
-        local line = Drawing.new("Line")
-        line.Thickness = 2
-        line.Transparency = 0.8
-        line.Visible = false
-        table.insert(bones, {pair = bonePair, line = line})
-    end
-
-    Cache.Bones[player.UserId] = bones
-end
-
-local function updateSkeletonBone(player, bone1Name, bone2Name, line)
-    if not player or not player.Character then
-        line.Visible = false
-        return false
-    end
-
-    local parts = Cache.BoneParts[player.UserId]
-    if not parts then
-        cacheBoneParts(player)
-        parts = Cache.BoneParts[player.UserId]
-        if not parts then
-            line.Visible = false
-            return false
-        end
-    end
-
-    local bone1 = parts[bone1Name]
-    local bone2 = parts[bone2Name]
-
-    if not bone1 or not bone1.Parent then
-        bone1 = player.Character:FindFirstChild(bone1Name)
-        if bone1 then parts[bone1Name] = bone1 end
-    end
-    if not bone2 or not bone2.Parent then
-        bone2 = player.Character:FindFirstChild(bone2Name)
-        if bone2 then parts[bone2Name] = bone2 end
-    end
-
-    if not bone1 or not bone2 then
-        line.Visible = false
-        return false
-    end
-
-    local s1, p1 = Camera:WorldToScreenPoint(bone1.Position)
-    local s2, p2 = Camera:WorldToScreenPoint(bone2.Position)
-
-    if s1.Z > 0 and s2.Z > 0 then
-        line.From = Vector2.new(p1.X, p1.Y)
-        line.To = Vector2.new(p2.X, p2.Y)
-        line.Visible = true
-        line.Color = getRoleColor(player)
-        return true
-    else
-        line.Visible = false
-        return false
-    end
-end
-
-local function updateAllSkeletons()
-    for userId, bones in pairs(Cache.Bones) do
-        local player = Players:GetPlayerByUserId(userId)
-        if not player or not Settings.SkeletonESP then
-            for _, bone in ipairs(bones) do
-                pcall(function() bone.line:Remove() end)
-            end
-            Cache.Bones[userId] = nil
-            Cache.BoneParts[userId] = nil
-        else
-            for _, bone in ipairs(bones) do
-                updateSkeletonBone(player, bone.pair[1], bone.pair[2], bone.line)
-            end
-        end
-    end
-end
-
-local function clearAllSkeletons()
-    for userId, bones in pairs(Cache.Bones) do
-        for _, bone in ipairs(bones) do
-            pcall(function() bone.line:Remove() end)
-        end
-    end
-    Cache.Bones = {}
-    Cache.BoneParts = {}
-end
-
--- Восстанавливаем скелетон в апдейт
-local oldUpdateVisuals = updateVisuals
-updateVisuals = function()
-    oldUpdateVisuals()
-    if Settings.SkeletonESP then
-        updateAllSkeletons()
-    end
-end
-
--- ========================================
 -- ===== ИНИЦИАЛИЗАЦИЯ =====
 -- ========================================
 
@@ -1770,10 +1755,12 @@ Players.PlayerAdded:Connect(function(player)
         end
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
-            createDistanceText(player)
         end
         if Settings.JumpCircles then
             Cache.JumpTracking[player.UserId] = {wasJumping = false}
+        end
+        if Settings.TracersEnabled and player ~= LocalPlayer then
+            createTracer(player)
         end
     end)
 end)
@@ -1788,9 +1775,9 @@ Players.PlayerRemoving:Connect(function(player)
         Cache.Bones[player.UserId] = nil
     end
     Cache.Highlights[player.UserId] = nil
-    if Cache.ChamsESP[player.UserId] then
-        pcall(function() Cache.ChamsESP[player.UserId].billboard:Destroy() end)
-        Cache.ChamsESP[player.UserId] = nil
+    if Cache.Tracers[player.UserId] then
+        pcall(function() Cache.Tracers[player.UserId]:Remove() end)
+        Cache.Tracers[player.UserId] = nil
     end
 end)
 
@@ -1799,18 +1786,20 @@ LocalPlayer.CharacterAdded:Connect(function()
     clearAllHighlights()
     clearAllChams()
     clearAllSkeletons()
+    clearAllTracers()
 
     Cache.BoneParts = {}
     Cache.ChamsPartsList = {}
-    Cache.ChamsESP = {}
 
     for _, player in ipairs(Players:GetPlayers()) do
         if Settings.ChamsEnabled then
             cacheCharacterParts(player)
-            createDistanceText(player)
         end
         if Settings.SkeletonESP then
             createSkeletonForPlayer(player)
+        end
+        if Settings.TracersEnabled and player ~= LocalPlayer then
+            createTracer(player)
         end
     end
 
@@ -1839,9 +1828,9 @@ startMainUpdate()
 setupJumpTracking()
 setupSheriffDeadNotif()
 
-print("✅ PlanetHub v3.0 HARDCORE Loaded!")
+print("✅ PlanetHub v3.0 FINAL Loaded!")
 StarterGui:SetCore("SendNotification", {
     Title = "Welcome",
-    Text = "PlanetHub v3.0 | Chams through walls + Distance!",
+    Text = "PlanetHub v3.0 | Chams + Tracers + Crosshair",
     Duration = 5
 })
