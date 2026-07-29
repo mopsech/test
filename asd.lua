@@ -2,7 +2,7 @@
 -- ===== WIND UI ХАБ =====
 -- ========================================
 
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/main.lua"))()
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
 
 WindUI:SetTheme("Dark")
 WindUI.TransparencyValue = 0.1
