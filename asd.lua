@@ -293,323 +293,64 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== ТРАССЕРЫ (ПЕРЕДЕЛАНЫ) =====
+-- ===== ТРАССЕРЫ (РАБОТАЮТ) =====
 -- ========================================
 
 local function createTracer(player)
     if not player or player == LocalPlayer then return end
     if Cache.Tracers[player.UserId] then return end
     
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    local line = Drawing.new("Line")
+    line.Thickness = 2
+    line.Transparency = 0.8
+    line.Visible = false
+    line.Color = getRoleColor(player)
     
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "Tracer"
-    billboard.Size = UDim2.new(0, 6, 0, 6)
-    billboard.AlwaysOnTop = true
-    billboard.StudsOffset = Vector3.new(0, 0, 0)
-    billboard.Adornee = hrp
-    billboard.Parent = hrp
-    
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.BackgroundColor3 = getRoleColor(player)
-    frame.BackgroundTransparency = 0
-    frame.BorderSizePixel = 0
-    frame.Parent = billboard
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = frame
-    
-    Cache.Tracers[player.UserId] = billboard
+    Cache.Tracers[player.UserId] = line
 end
 
 local function updateTracers()
-    for userId, billboard in pairs(Cache.Tracers) do
+    if not Settings.TracersEnabled then
+        for _, line in pairs(Cache.Tracers) do
+            line.Visible = false
+        end
+        return
+    end
+    
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+    
+    for userId, line in pairs(Cache.Tracers) do
         local player = Players:GetPlayerByUserId(userId)
-        if not player or not player.Character or not Settings.TracersEnabled then
-            if billboard then pcall(function() billboard:Destroy() end) end
-            Cache.Tracers[userId] = nil
+        
+        if not player or not player.Character then
+            line.Visible = false
             continue
         end
         
         local hrp = player.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then
-            if billboard then pcall(function() billboard:Destroy() end) end
-            Cache.Tracers[userId] = nil
+            line.Visible = false
             continue
         end
         
-        if billboard and billboard.Parent ~= hrp then
-            billboard.Adornee = hrp
-            billboard.Parent = hrp
+        local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen or sp.Z < 0 then
+            line.Visible = false
+            continue
         end
         
-        if billboard then
-            local frame = billboard:FindFirstChildOfClass("Frame")
-            if frame then
-                frame.BackgroundColor3 = getRoleColor(player)
-            end
-        end
+        line.From = center
+        line.To = Vector2.new(sp.X, sp.Y)
+        line.Visible = true
+        line.Color = getRoleColor(player)
     end
 end
 
 local function clearAllTracers()
-    for userId, billboard in pairs(Cache.Tracers) do
-        if billboard then pcall(function() billboard:Destroy() end) end
+    for userId, line in pairs(Cache.Tracers) do
+        pcall(function() line:Remove() end)
     end
     Cache.Tracers = {}
-end
-
--- ========================================
--- ===== КНОПКА ВЫСТРЕЛА =====
--- ========================================
-
-local function createShootButton()
-    if Cache.ShootButton then
-        pcall(function() Cache.ShootButton:Destroy() end)
-        Cache.ShootButton = nil
-    end
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ShootButton"
-    screenGui.ResetOnSpawn = false
-    screenGui.IgnoreGuiInset = true
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 100, 0, 50)
-    button.Position = UDim2.new(0.5, -50, 0.6, 0)
-    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    button.BackgroundTransparency = 0.1
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = "Выстрел"
-    button.TextSize = 18
-    button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 2
-    button.BorderColor3 = Color3.fromRGB(60, 60, 60)
-    button.Parent = screenGui
-    button.ClipsDescendants = true
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = button
-    
-    local isDragging = false
-    local dragStart = nil
-    local startPos = nil
-    local isHeld = false
-    
-    -- ДЛЯ МЫШИ
-    button.MouseButton1Down:Connect(function()
-        isHeld = true
-        dragStart = UserInputService:GetMouseLocation()
-        startPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    end)
-    
-    button.MouseButton1Up:Connect(function()
-        isHeld = false
-        if not isDragging then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            task.spawn(function()
-                if not LocalPlayer.Character then return end
-                if not equipGun() then
-                    notify("Выстрел", "Оружие не найдено", 2)
-                    return
-                end
-                
-                local target = nil
-                local targetDist = math.huge
-                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
-                
-                for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character then
-                        if checkKnife(player) and isPlayerVisible(player) then
-                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                local dist = (myHRP.Position - hrp.Position).Magnitude
-                                if dist < targetDist then
-                                    targetDist = dist
-                                    target = player
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                if not target then
-                    notify("Выстрел", "Убийца не найден", 2)
-                    return
-                end
-                
-                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-                if not tHRP then return end
-                
-                local vel = tHRP.AssemblyLinearVelocity
-                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
-                
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
-                
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
-                end)
-            end)
-        else
-            isDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        end
-    end)
-    
-    -- ПЕРЕТАСКИВАНИЕ МЫШЬЮ
-    UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and isHeld then
-            local delta = input.Position - dragStart
-            if delta.Magnitude > 10 then
-                isDragging = true
-            end
-            if isDragging then
-                button.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-            end
-        end
-    end)
-    
-    -- ДЛЯ ТЕЛЕФОНА
-    local touchStart = nil
-    local touchPos = nil
-    local touchDragging = false
-    
-    button.TouchBegan:Connect(function(touch)
-        isHeld = true
-        touchStart = touch.Position
-        touchPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    end)
-    
-    button.TouchMoved:Connect(function(touch)
-        if not isHeld then return end
-        local delta = touch.Position - touchStart
-        if delta.Magnitude > 10 then
-            touchDragging = true
-        end
-        if touchDragging then
-            button.Position = UDim2.new(
-                touchPos.X.Scale,
-                touchPos.X.Offset + delta.X,
-                touchPos.Y.Scale,
-                touchPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    
-    button.TouchEnded:Connect(function()
-        isHeld = false
-        if not touchDragging then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            task.spawn(function()
-                if not LocalPlayer.Character then return end
-                if not equipGun() then
-                    notify("Выстрел", "Оружие не найдено", 2)
-                    return
-                end
-                
-                local target = nil
-                local targetDist = math.huge
-                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
-                
-                for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character then
-                        if checkKnife(player) and isPlayerVisible(player) then
-                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                local dist = (myHRP.Position - hrp.Position).Magnitude
-                                if dist < targetDist then
-                                    targetDist = dist
-                                    target = player
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                if not target then
-                    notify("Выстрел", "Убийца не найден", 2)
-                    return
-                end
-                
-                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-                if not tHRP then return end
-                
-                local vel = tHRP.AssemblyLinearVelocity
-                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
-                
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
-                
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
-                end)
-            end)
-        else
-            touchDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        end
-    end)
-    
-    Cache.ShootButton = screenGui
-    return screenGui
-end
-
-local function toggleShootButton(enabled)
-    Settings.ShootButtonEnabled = enabled
-    if enabled then
-        createShootButton()
-    else
-        if Cache.ShootButton then
-            pcall(function() Cache.ShootButton:Destroy() end)
-            Cache.ShootButton = nil
-        end
-    end
-end
-
--- ========================================
--- ===== ЗАХВАТ ОРУЖИЯ =====
--- ========================================
-
-local function grabGun()
-    local found = false
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") then
-            local n = obj.Name:lower()
-            if n:find("gun") or n:find("pistol") or n:find("revolver") then
-                local handle = obj:FindFirstChild("Handle")
-                if handle and LocalPlayer.Character then
-                    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
-                        notify("Захват оружия", "Телепорт к оружию", 2)
-                        found = true
-                        break
-                    end
-                end
-            end
-        end
-    end
-    if not found then
-        notify("Захват оружия", "Оружие не найдено", 2)
-    end
 end
 
 -- ========================================
@@ -617,12 +358,13 @@ end
 -- ========================================
 
 local MobileButtons = {}
+local MobileButtonPositions = {}
 
 local function getNextMobilePosition()
     local count = 0
     for _ in pairs(MobileButtons) do count = count + 1 end
-    local x = 0.05 + (count % 4) * 0.13
-    local y = 0.1 + math.floor(count / 4) * 0.1
+    local x = 0.05 + (count % 4) * 0.15
+    local y = 0.1 + math.floor(count / 4) * 0.12
     return UDim2.new(x, 0, y, 0)
 end
 
@@ -688,13 +430,14 @@ local function createMobileButton(label, action)
     button.Size = UDim2.new(0, 80, 0, 40)
     button.Position = getNextMobilePosition()
     button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    button.BackgroundTransparency = 0.2
+    button.BackgroundTransparency = 0.15
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
     button.Text = label
     button.TextSize = 14
     button.Font = Enum.Font.GothamBold
     button.BorderSizePixel = 2
     button.BorderColor3 = Color3.fromRGB(60, 60, 60)
+    button.BorderTransparency = 0.3
     button.Parent = screenGui
     button.ClipsDescendants = true
 
@@ -702,36 +445,30 @@ local function createMobileButton(label, action)
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = button
 
-    -- ПЕРЕТАСКИВАНИЕ
     local dragging = false
-    local dragInput = nil
     local dragStart = nil
     local startPos = nil
-
-    local function updateInput(input)
-        if not dragging then return end
-        local delta = input.Position - dragStart
-        button.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-
+    
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = button.Position
             button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            button.BackgroundTransparency = 0.1
         end
     end)
 
     button.InputChanged:Connect(function(input)
+        if not dragging then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-            updateInput(input)
+            local delta = input.Position - dragStart
+            button.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
         end
     end)
 
@@ -739,10 +476,12 @@ local function createMobileButton(label, action)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            if not dragInput then
+            button.BackgroundTransparency = 0.15
+            
+            if not dragStart then return end
+            if (input.Position - dragStart).Magnitude < 10 then
                 executeMobileAction(action)
             end
-            dragInput = nil
         end
     end)
 
@@ -757,6 +496,263 @@ local function removeMobileButton(label)
         notify("Мобилка", label .. " удалена", 2)
     else
         notify("Мобилка", label .. " не найдена", 2)
+    end
+end
+
+-- ========================================
+-- ===== КНОПКА ВЫСТРЕЛА =====
+-- ========================================
+
+local function createShootButton()
+    if Cache.ShootButton then
+        pcall(function() Cache.ShootButton:Destroy() end)
+        Cache.ShootButton = nil
+    end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ShootButton"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 100, 0, 50)
+    button.Position = UDim2.new(0.5, -50, 0.6, 0)
+    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    button.BackgroundTransparency = 0.15
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Text = "Выстрел"
+    button.TextSize = 18
+    button.Font = Enum.Font.GothamBold
+    button.BorderSizePixel = 2
+    button.BorderColor3 = Color3.fromRGB(60, 60, 60)
+    button.BorderTransparency = 0.3
+    button.Parent = screenGui
+    button.ClipsDescendants = true
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = button
+    
+    local isDragging = false
+    local dragStart = nil
+    local startPos = nil
+    local isHeld = false
+    
+    -- ДЛЯ МЫШИ
+    button.MouseButton1Down:Connect(function()
+        isHeld = true
+        dragStart = UserInputService:GetMouseLocation()
+        startPos = button.Position
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        button.BackgroundTransparency = 0.1
+    end)
+    
+    button.MouseButton1Up:Connect(function()
+        isHeld = false
+        if not isDragging then
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            button.BackgroundTransparency = 0.15
+            task.spawn(function()
+                if not LocalPlayer.Character then return end
+                if not equipGun() then
+                    notify("Выстрел", "Оружие не найдено", 2)
+                    return
+                end
+                
+                local target = nil
+                local targetDist = math.huge
+                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not myHRP then return end
+                
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        if checkKnife(player) and isPlayerVisible(player) then
+                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                local dist = (myHRP.Position - hrp.Position).Magnitude
+                                if dist < targetDist then
+                                    targetDist = dist
+                                    target = player
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if not target then
+                    notify("Выстрел", "Убийца не найден", 2)
+                    return
+                end
+                
+                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                if not tHRP then return end
+                
+                local vel = tHRP.AssemblyLinearVelocity
+                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
+                
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+                
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                end)
+            end)
+        else
+            isDragging = false
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            button.BackgroundTransparency = 0.15
+        end
+    end)
+    
+    -- ПЕРЕТАСКИВАНИЕ МЫШЬЮ
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and isHeld then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 10 then
+                isDragging = true
+            end
+            if isDragging then
+                button.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
+        end
+    end)
+    
+    -- ДЛЯ ТЕЛЕФОНА
+    local touchStart = nil
+    local touchPos = nil
+    local touchDragging = false
+    
+    button.TouchBegan:Connect(function(touch)
+        isHeld = true
+        touchStart = touch.Position
+        touchPos = button.Position
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        button.BackgroundTransparency = 0.1
+    end)
+    
+    button.TouchMoved:Connect(function(touch)
+        if not isHeld then return end
+        local delta = touch.Position - touchStart
+        if delta.Magnitude > 10 then
+            touchDragging = true
+        end
+        if touchDragging then
+            button.Position = UDim2.new(
+                touchPos.X.Scale,
+                touchPos.X.Offset + delta.X,
+                touchPos.Y.Scale,
+                touchPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    button.TouchEnded:Connect(function()
+        isHeld = false
+        if not touchDragging then
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            button.BackgroundTransparency = 0.15
+            task.spawn(function()
+                if not LocalPlayer.Character then return end
+                if not equipGun() then
+                    notify("Выстрел", "Оружие не найдено", 2)
+                    return
+                end
+                
+                local target = nil
+                local targetDist = math.huge
+                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not myHRP then return end
+                
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        if checkKnife(player) and isPlayerVisible(player) then
+                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                local dist = (myHRP.Position - hrp.Position).Magnitude
+                                if dist < targetDist then
+                                    targetDist = dist
+                                    target = player
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if not target then
+                    notify("Выстрел", "Убийца не найден", 2)
+                    return
+                end
+                
+                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                if not tHRP then return end
+                
+                local vel = tHRP.AssemblyLinearVelocity
+                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
+                
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+                
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                end)
+            end)
+        else
+            touchDragging = false
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            button.BackgroundTransparency = 0.15
+        end
+    end)
+    
+    Cache.ShootButton = screenGui
+    return screenGui
+end
+
+local function toggleShootButton(enabled)
+    Settings.ShootButtonEnabled = enabled
+    if enabled then
+        createShootButton()
+    else
+        if Cache.ShootButton then
+            pcall(function() Cache.ShootButton:Destroy() end)
+            Cache.ShootButton = nil
+        end
+    end
+end
+
+-- ========================================
+-- ===== ЗАХВАТ ОРУЖИЯ =====
+-- ========================================
+
+local function grabGun()
+    local found = false
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Tool") then
+            local n = obj.Name:lower()
+            if n:find("gun") or n:find("pistol") or n:find("revolver") then
+                local handle = obj:FindFirstChild("Handle")
+                if handle and LocalPlayer.Character then
+                    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
+                        notify("Захват оружия", "Телепорт к оружию", 2)
+                        found = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if not found then
+        notify("Захват оружия", "Оружие не найдено", 2)
     end
 end
 
@@ -875,25 +871,6 @@ local function clearAllHighlights()
         if hl then pcall(function() hl:Destroy() end) end
     end
     Cache.Highlights = {}
-end
-
--- ========================================
--- ===== ТРАССЕРЫ (ОБНОВЛЕНИЕ) =====
--- ========================================
-
-local function updateTracersLoop()
-    if not Settings.TracersEnabled then
-        clearAllTracers()
-        return
-    end
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            if not Cache.Tracers[player.UserId] then
-                createTracer(player)
-            end
-        end
-    end
 end
 
 -- ========================================
@@ -1790,7 +1767,10 @@ local function startMainUpdate()
         
         if any then
             updateVisuals()
-            updateTracersLoop()
+        end
+        
+        if Settings.TracersEnabled then
+            updateTracers()
         end
         
         if Settings.JumpCircles then
@@ -1848,10 +1828,10 @@ VisualSection:Toggle({Title = "Трассеры", Default = false, Callback = fu
     Settings.TracersEnabled = v
     if v then
         for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
-        startMainUpdate()
     else
         clearAllTracers()
     end
+    startMainUpdate()
 end})
 
 -- ЭФФЕКТЫ
@@ -2047,7 +2027,7 @@ Players.PlayerRemoving:Connect(function(player)
     Cache.ChamsPartsList[player.UserId] = nil
     Cache.Highlights[player.UserId] = nil
     if Cache.Tracers[player.UserId] then
-        pcall(function() Cache.Tracers[player.UserId]:Destroy() end)
+        pcall(function() Cache.Tracers[player.UserId]:Remove() end)
         Cache.Tracers[player.UserId] = nil
     end
 end)
