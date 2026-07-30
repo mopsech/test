@@ -8,7 +8,7 @@ if not WindUI then
     return
 end
 
-WindUI:SetTheme("Dark")
+WindUI:SetTheme("Violet")
 WindUI.TransparencyValue = 0.1
 
 -- ========================================
