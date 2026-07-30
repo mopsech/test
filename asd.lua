@@ -131,7 +131,7 @@ local Cache = {
 local COLORS = {
     Murder = Color3.fromRGB(255, 0, 0),
     Sheriff = Color3.fromRGB(0, 100, 255),
-    Innocent = Color3.fromRGB(0, 255, 0),
+    Innocent = Color3.fromRGB(138, 43, 226), -- ФИОЛЕТОВЫЙ
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
     Red = Color3.fromRGB(255, 50, 50),
@@ -197,7 +197,7 @@ local function getRoleColor(player)
     local r = getRole(player)
     if r == "Murder" then return COLORS.Murder end
     if r == "Sheriff" then return COLORS.Sheriff end
-    return COLORS.Innocent
+    return COLORS.Innocent -- ФИОЛЕТОВЫЙ
 end
 
 local function getLocalKnife()
@@ -281,8 +281,8 @@ local function createFlyBlock()
     
     local block = Instance.new("Part")
     block.Name = "FlyBlock"
-    block.Size = Vector3.new(0.1, 0.1, 0.1) -- ОЧЕНЬ МАЛЕНЬКИЙ
-    block.Transparency = 1 -- НЕВИДИМЫЙ
+    block.Size = Vector3.new(0.1, 0.1, 0.1)
+    block.Transparency = 1
     block.CanCollide = false
     block.Anchored = true
     block.Parent = workspace
@@ -373,7 +373,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== ESP =====
+-- ===== ESP (INNOCENT → ФИОЛЕТОВЫЙ) =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
@@ -409,7 +409,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== TRACERS (НА HRP, НЕ МЕНЯЮТ РАЗМЕР) =====
+-- ===== TRACERS (НА HRP) =====
 -- ========================================
 
 local function createTracer(player)
@@ -440,7 +440,6 @@ local function updateTracers()
             line.Visible = false
             continue
         end
-        -- ВСЕГДА ОТ ЦЕНТРА ЭКРАНА К HRP, БЕЗ ИЗМЕНЕНИЯ РАЗМЕРА
         line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         line.To = Vector2.new(sp.X, sp.Y)
         line.Visible = true
@@ -456,7 +455,7 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ ПОСЛЕ РЕСЕТА) =====
+-- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ) =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -721,19 +720,15 @@ local function autoShootMurderLoop()
             continue
         end
         
-        -- Экипируем оружие
         pcall(function() LocalPlayer.Character.Humanoid:EquipTool(myGun) end)
         
-        -- Стреляем пока не убьём или не кончатся патроны
         local shots = 0
         while Settings.AutoShootMurder and target and target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 and shots < 20 do
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             if not tHRP then break end
             
-            -- Наводимся на цель
             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, tHRP.Position)
             
-            -- Стреляем
             pcall(function()
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
                 task.wait(0.05)
@@ -882,7 +877,7 @@ local function teleportToRole(role)
 end
 
 -- ========================================
--- ===== KILL ALL =====
+-- ===== KILL ALL (БЫСТРЫЙ) =====
 -- ========================================
 
 local function stopKillAll()
@@ -912,79 +907,66 @@ local function killAllPlayers()
 
     Cache.KillAllRunning = true
     local killRemote = findKillRemote()
-    StarterGui:SetCore("SendNotification",{Title="Kill All",Text="🔪 Запущен!",Duration=2})
+    StarterGui:SetCore("SendNotification",{Title="Kill All",Text="⚡ БЫСТРЫЙ РЕЖИМ!",Duration=2})
 
     task.spawn(function()
-        local lastKnifeCheck = tick()
-
         while Cache.KillAllRunning do
-            if tick() - lastKnifeCheck >= 1 then
-                lastKnifeCheck = tick()
-                if not getLocalKnife() then
-                    Cache.KillAllRunning = false
-                    StarterGui:SetCore("SendNotification",{
-                        Title="Kill All", Text="🚫 Нож пропал! Остановлен.", Duration=3
-                    })
-                    break
-                end
-            end
-
-            if not LocalPlayer.Character then task.wait(1) continue end
+            if not LocalPlayer.Character then task.wait(0.5) continue end
+            
             local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then task.wait(1) continue end
+            if not myHRP then task.wait(0.5) continue end
 
             local targets = {}
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer
-                    and p.Character
-                    and p.Character:FindFirstChild("HumanoidRootPart")
-                    and p.Character:FindFirstChildOfClass("Humanoid")
-                    and p.Character.Humanoid.Health > 0
-                then
-                    table.insert(targets, p)
+                if p ~= LocalPlayer and p.Character then
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        table.insert(targets, p)
+                    end
                 end
+            end
+
+            if #targets == 0 then                StarterGui:SetCore("SendNotification",{Title="Kill All",Text="✅ Все мертвы!",Duration=2})
+                Cache.KillAllRunning = false
+                break
             end
 
             for _, target in ipairs(targets) do
                 if not Cache.KillAllRunning then break end
                 if not target.Character then continue end
+
                 local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
                 local tHum = target.Character:FindFirstChildOfClass("Humanoid")
                 if not tHRP or not tHum or tHum.Health <= 0 then continue end
 
                 myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, 1.5)
-                task.wait(0.05)
+                task.wait(0.03)
 
-                local k = getLocalKnife()
-                if k then pcall(function() LocalPlayer.Character.Humanoid:EquipTool(k) end) end
-                task.wait(0.1)
-
-                if killRemote then
-                    pcall(function() killRemote:FireServer(target) end)
-                    pcall(function() killRemote:FireServer(target.Character) end)
-                    pcall(function() killRemote:FireServer(tHRP) end)
+                local knife = getLocalKnife()
+                if knife then
+                    pcall(function() LocalPlayer.Character.Humanoid:EquipTool(knife) end)
                 end
+                task.wait(0.02)
 
-                local clicks = 0
-                while Cache.KillAllRunning
-                    and target.Character
-                    and target.Character:FindFirstChildOfClass("Humanoid")
-                    and target.Character.Humanoid.Health > 0
-                    and clicks < 8
-                do
-                    pcall(function() mouse1press() end) task.wait(0.03)
+                local startTime = tick()
+                while Cache.KillAllRunning and tHum and tHum.Health > 0 and tick() - startTime < 2 do
+                    pcall(function() mouse1press() end)
+                    task.wait(0.01)
                     pcall(function() mouse1release() end)
-                    pcall(function()
-                        firetouchinterest(myHRP, tHRP, 0)
-                        task.wait(0.02)
-                        firetouchinterest(myHRP, tHRP, 1)
-                    end)
-                    clicks = clicks + 1
-                    task.wait(0.05)
+                    
+                    if killRemote then
+                        pcall(function() killRemote:FireServer(target) end)
+                        pcall(function() killRemote:FireServer(target.Character) end)
+                        pcall(function() killRemote:FireServer(tHRP) end)
+                    end
+                    
+                    task.wait(0.02)
                 end
-                task.wait(0.2)
+                
+                task.wait(0.05)
             end
-            task.wait(0.5)
+            
+            task.wait(0.1)
         end
     end)
 end
@@ -1031,7 +1013,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM (С ФИКСОМ РЕСЕТА) =====
+-- ===== AUTO FARM =====
 -- ========================================
 
 local function getCurrentCoins()
@@ -1151,7 +1133,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== FLY (С ФИКСОМ БЛОКА) =====
+-- ===== FLY =====
 -- ========================================
 
 local flyConn = nil
@@ -1172,7 +1154,6 @@ local function stopFly()
     if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
     if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
     
-    -- Удаляем блок
     if Cache.FlyBlockPart then
         pcall(function() Cache.FlyBlockPart:Destroy() end)
         Cache.FlyBlockPart = nil
@@ -1193,7 +1174,6 @@ local function startFly()
     workspace.Gravity = 0
     hum.PlatformStand = true
     
-    -- Создаём невидимый блок
     createFlyBlock()
     
     for _, cls in ipairs({"BodyVelocity", "BodyGyro"}) do
@@ -1248,7 +1228,6 @@ local function startFly()
         flyBV.Velocity = finalVel
         flyBG.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, camCF:ToEulerAnglesYXZ(), 0)
         
-        -- Обновляем позицию блока (следует за игроком)
         if Cache.FlyBlockPart then
             Cache.FlyBlockPart.CFrame = hrp.CFrame
         end
@@ -1418,10 +1397,15 @@ local function updateVisuals()
         end
         if not player.Character then continue end
         local role = getRole(player)
-        if Settings.MurderESP and role=="Murder" then createOrUpdateHighlight(player,COLORS.Murder)
-        elseif Settings.SheriffESP and role=="Sheriff" then createOrUpdateHighlight(player,COLORS.Sheriff)
-        elseif Settings.InnocentESP and role=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent)
-        else removeHighlight(player) end
+        if Settings.MurderESP and role == "Murder" then
+            createOrUpdateHighlight(player, COLORS.Murder)
+        elseif Settings.SheriffESP and role == "Sheriff" then
+            createOrUpdateHighlight(player, COLORS.Sheriff)
+        elseif Settings.InnocentESP and role == "Innocent" then
+            createOrUpdateHighlight(player, COLORS.Innocent) -- ФИОЛЕТОВЫЙ
+        else
+            removeHighlight(player)
+        end
         if Settings.ChamsEnabled then applyChams(player)
         elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
         if Settings.TracersEnabled and not Cache.Tracers[player.UserId] then createTracer(player) end
@@ -1554,9 +1538,9 @@ end})
 local VisualTab = Window:Tab({Title="Visual", Icon="eye"})
 local VisualL = VisualTab:Section({Title="ESP", Side="Left"})
 
-VisualL:Toggle({Title="ESP Murder", Default=false, Callback=function(v) Settings.MurderESP=v startMainUpdate() end})
-VisualL:Toggle({Title="ESP Sheriff", Default=false, Callback=function(v) Settings.SheriffESP=v startMainUpdate() end})
-VisualL:Toggle({Title="ESP Innocent", Default=false, Callback=function(v) Settings.InnocentESP=v startMainUpdate() end})
+VisualL:Toggle({Title="ESP Murder (Red)", Default=false, Callback=function(v) Settings.MurderESP=v startMainUpdate() end})
+VisualL:Toggle({Title="ESP Sheriff (Blue)", Default=false, Callback=function(v) Settings.SheriffESP=v startMainUpdate() end})
+VisualL:Toggle({Title="ESP Innocent (Purple)", Default=false, Callback=function(v) Settings.InnocentESP=v startMainUpdate() end})
 VisualL:Toggle({Title="Chams (Purple, AlwaysOnTop)", Default=false, Callback=function(v)
     Settings.ChamsEnabled = v
     if v then for _,p in ipairs(Players:GetPlayers()) do cacheCharacterParts(p) end
@@ -1570,7 +1554,7 @@ VisualL:Toggle({Title="Tracers (HRP)", Default=false, Callback=function(v)
     startMainUpdate()
 end})
 
--- EFFECTS (НОВАЯ ВКЛАДКА)
+-- EFFECTS
 local EffectsTab = Window:Tab({Title="Effects", Icon="sparkles"})
 local EffectsL = EffectsTab:Section({Title="Effects", Side="Left"})
 local EffectsR = EffectsTab:Section({Title="World", Side="Right"})
@@ -1677,7 +1661,6 @@ LocalPlayer.CharacterAdded:Connect(function()
     setupRGBHumanoid()
     Cache.JumpTracking = {wasJumping=false}
 
-    -- Восстанавливаем трейл после ресета
     if Settings.Trails then
         task.wait(0.1)
         createLocalPlayerTrail()
@@ -1711,6 +1694,6 @@ createFovCircle()
 
 StarterGui:SetCore("SendNotification",{
     Title = "PlanetHub v3.0",
-    Text = "✅ Loaded! Fly+BHop Mobile, JumpCircles Fixed, FOV→HRP",
+    Text = "✅ Loaded! Violet Theme | Innocent = Purple | Kill All Fast",
     Duration = 4
 })
