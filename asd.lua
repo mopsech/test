@@ -80,19 +80,18 @@ local Settings = {
 
 local Cache = {
     Highlights       = {},
-    ChamsObjects     = {},       -- { [userId] = { selectionBox, ... } }
+    ChamsObjects     = {},
     PostEffects      = {},
     JumpTracking     = {wasJumping = false},
     RGBConnection    = nil,
     AutoFarmConn     = nil,
     CurrentTween     = nil,
-    XRayParts        = setmetatable({}, {__mode = "k"}),  -- weak keys
+    XRayParts        = setmetatable({}, {__mode = "k"}),
     Tracers          = {},
-    TrailObjects     = {},       -- { trail, att1, att2 }
+    TrailObjects     = {},
     FovCircle        = nil,
     FovConnection    = nil,
     KillAllRunning   = false,
-    MainConn         = nil,
 }
 
 local COLORS = {
@@ -124,34 +123,42 @@ end
 
 local function checkKnife(player)
     if not player or not player.Character then return false end
-    local function scanTools(parent)
-        for _, item in ipairs(parent:GetChildren()) do
+    for _, item in ipairs(player.Character:GetDescendants()) do
+        if item:IsA("Tool") then
+            local n = item.Name:lower()
+            if n:find("knife") or n:find("blade") then return true end
+        end
+    end
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
             if item:IsA("Tool") then
                 local n = item.Name:lower()
                 if n:find("knife") or n:find("blade") then return true end
             end
         end
-        return false
     end
-    if scanTools(player.Character) then return true end
-    local bp = player:FindFirstChild("Backpack")
-    return bp and scanTools(bp) or false
+    return false
 end
 
 local function checkGun(player)
     if not player or not player.Character then return false end
-    local function scanTools(parent)
-        for _, item in ipairs(parent:GetChildren()) do
+    for _, item in ipairs(player.Character:GetDescendants()) do
+        if item:IsA("Tool") then
+            local n = item.Name:lower()
+            if n:find("gun") or n:find("pistol") or n:find("revolver") then return true end
+        end
+    end
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
             if item:IsA("Tool") then
                 local n = item.Name:lower()
                 if n:find("gun") or n:find("pistol") or n:find("revolver") then return true end
             end
         end
-        return false
     end
-    if scanTools(player.Character) then return true end
-    local bp = player:FindFirstChild("Backpack")
-    return bp and scanTools(bp) or false
+    return false
 end
 
 local function getRole(player)
@@ -169,61 +176,67 @@ end
 
 local function getLocalKnife()
     if not LocalPlayer.Character then return nil end
-    local function scanTools(parent)
-        for _, item in ipairs(parent:GetChildren()) do
+    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if item:IsA("Tool") then
+            local n = item.Name:lower()
+            if n:find("knife") or n:find("blade") then return item end
+        end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
             if item:IsA("Tool") then
                 local n = item.Name:lower()
                 if n:find("knife") or n:find("blade") then return item end
             end
         end
-        return nil
     end
-    local found = scanTools(LocalPlayer.Character)
-    if found then return found end
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    return bp and scanTools(bp) or nil
+    return nil
 end
 
 local function getGroundY(origin)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
     local char = LocalPlayer.Character
-    if char then params.FilterDescendantsInstances = {char} end
-    local result = Workspace:Raycast(origin, Vector3.new(0, -50, 0), params)
-    return result and result.Position.Y or (origin.Y - 3)
-end
-
-local function getHRP(player)
-    if not player or not player.Character then return nil end
-    return player.Character:FindFirstChild("HumanoidRootPart")
+    if char then
+        raycastParams.FilterDescendantsInstances = {char}
+    end
+    local result = Workspace:Raycast(origin, Vector3.new(0, -50, 0), raycastParams)
+    if result then return result.Position.Y end
+    return origin.Y - 3
 end
 
 -- ========================================
--- ===== CHAMS (SelectionBox, не Highlight) =====
+-- ===== CHAMS (SelectionBox — не Highlight) =====
 -- ========================================
--- Настоящие Chams — обводка через SelectionBox,
--- которая всегда видна сквозь стены (DepthMode не нужен,
--- SelectionBox работает поверх геометрии в 3D).
 
 local function applyChams(player)
     if not player or not player.Character then return end
     local userId = player.UserId
-    if Cache.ChamsObjects[userId] then return end   -- уже применено
+    -- уже применено — обновляем цвет
+    if Cache.ChamsObjects[userId] then
+        local color = getRoleColor(player)
+        for _, box in ipairs(Cache.ChamsObjects[userId]) do
+            if box and box.Parent then
+                box.Color3 = color
+            end
+        end
+        return
+    end
 
     local char  = player.Character
-    local role  = getRole(player)
     local color = getRoleColor(player)
-
     local boxes = {}
+
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local box = Instance.new("SelectionBox")
-            box.Adornee          = part
-            box.Color3           = color
-            box.LineThickness    = 0.04
-            box.SurfaceTransparency = 1          -- заливки нет, только рёбра
-            box.SurfaceColor3    = color
-            box.Parent           = Workspace
+            local box                    = Instance.new("SelectionBox")
+            box.Adornee                  = part
+            box.Color3                   = color
+            box.LineThickness            = 0.04
+            box.SurfaceTransparency      = 1
+            box.SurfaceColor3            = color
+            box.Parent                   = Workspace
             table.insert(boxes, box)
         end
     end
@@ -233,17 +246,16 @@ end
 
 local function removeChams(player)
     if not player then return end
-    local userId = player.UserId
-    local boxes  = Cache.ChamsObjects[userId]
+    local boxes = Cache.ChamsObjects[player.UserId]
     if not boxes then return end
     for _, box in ipairs(boxes) do
         pcall(function() box:Destroy() end)
     end
-    Cache.ChamsObjects[userId] = nil
+    Cache.ChamsObjects[player.UserId] = nil
 end
 
 local function clearAllChams()
-    for userId, boxes in pairs(Cache.ChamsObjects) do
+    for _, boxes in pairs(Cache.ChamsObjects) do
         for _, box in ipairs(boxes) do
             pcall(function() box:Destroy() end)
         end
@@ -251,24 +263,16 @@ local function clearAllChams()
     Cache.ChamsObjects = {}
 end
 
-local function refreshChams(player)
-    -- При смене роли цвет может измениться — пересоздаём
-    removeChams(player)
-    if Settings.ChamsEnabled then
-        applyChams(player)
-    end
-end
-
 -- ========================================
--- ===== ESP (Highlight) =====
+-- ===== ESP =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
     if not player or not player.Character then return end
     local char = player.Character
-    local hl   = char:FindFirstChild("PH_ESP")
+    local hl = char:FindFirstChild("PH_ESP")
     if not hl then
-        hl           = Instance.new("Highlight")
+        hl = Instance.new("Highlight")
         hl.Name      = "PH_ESP"
         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         hl.Parent    = char
@@ -314,7 +318,7 @@ local function updateTracers()
     for userId, line in pairs(Cache.Tracers) do
         local player = Players:GetPlayerByUserId(userId)
 
-        -- Игрок вышел — удаляем линию
+        -- игрок вышел — чистим
         if not player then
             pcall(function() line:Remove() end)
             Cache.Tracers[userId] = nil
@@ -326,22 +330,21 @@ local function updateTracers()
             continue
         end
 
-        -- Цель: HumanoidRootPart
-        local hrp = getHRP(player)
+        -- цель — HumanoidRootPart
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then
             line.Visible = false
             continue
         end
 
-        local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or screenPos.Z < 0 then
+        local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen or sp.Z < 0 then
             line.Visible = false
             continue
         end
 
-        -- Начало трейсера: нижний центр экрана
         line.From    = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-        line.To      = Vector2.new(screenPos.X, screenPos.Y)
+        line.To      = Vector2.new(sp.X, sp.Y)
         line.Color   = getRoleColor(player)
         line.Visible = true
     end
@@ -358,7 +361,6 @@ end
 -- ===== TRAILS (исправлен ресет) =====
 -- ========================================
 
--- Удаляем старый трейл (если есть)
 local function removeLocalPlayerTrail()
     local obj = Cache.TrailObjects
     if obj.trail then pcall(function() obj.trail:Destroy() end) end
@@ -367,16 +369,15 @@ local function removeLocalPlayerTrail()
     Cache.TrailObjects = {}
 end
 
--- Создаём трейл на текущем персонаже
 local function createLocalPlayerTrail()
-    removeLocalPlayerTrail()    -- сначала чистим старый
+    removeLocalPlayerTrail()
 
     local char = LocalPlayer.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- Удаляем случайные старые attachment/trail на HRP
+    -- убираем старые вложения чтобы не было "стада"
     for _, child in ipairs(hrp:GetChildren()) do
         if child:IsA("Attachment") or child:IsA("Trail") then
             pcall(function() child:Destroy() end)
@@ -384,7 +385,7 @@ local function createLocalPlayerTrail()
     end
 
     local att1       = Instance.new("Attachment")
-    att1.Position    = Vector3.new(0, 1, 0)
+    att1.Position    = Vector3.new(0,  1, 0)
     att1.Parent      = hrp
 
     local att2       = Instance.new("Attachment")
@@ -418,24 +419,22 @@ local function setupBloom(en)
 end
 
 local function setupColorCorrection(en)
-    Lighting.Ambient        = en and COLORS.Purple or Color3.fromRGB(0, 0, 0)
-    Lighting.OutdoorAmbient = en and COLORS.Purple or Color3.fromRGB(0, 0, 0)
+    Lighting.Ambient        = en and COLORS.Purple or Color3.fromRGB(0,0,0)
+    Lighting.OutdoorAmbient = en and COLORS.Purple or Color3.fromRGB(0,0,0)
 end
 
 local function setupVignette(en)
     if en then
         if Cache.PostEffects.vignette then return end
-        local sg            = Instance.new("ScreenGui")
-        sg.Name             = "VignetteEffect"
-        sg.ResetOnSpawn     = false
-        sg.IgnoreGuiInset   = true
-        local f             = Instance.new("Frame")
-        f.Size              = UDim2.new(1, 0, 1, 0)
-        f.BackgroundColor3  = Color3.fromRGB(0, 0, 0)
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "VignetteEffect"; sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true
+        local f = Instance.new("Frame")
+        f.Size = UDim2.new(1,0,1,0)
+        f.BackgroundColor3 = Color3.fromRGB(0,0,0)
         f.BackgroundTransparency = 0.5
-        f.BorderSizePixel   = 0
-        f.Parent            = sg
-        sg.Parent           = LocalPlayer:WaitForChild("PlayerGui")
+        f.BorderSizePixel = 0
+        f.Parent = sg
+        sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
         Cache.PostEffects.vignette = sg
     else
         if Cache.PostEffects.vignette then
@@ -453,15 +452,15 @@ local function setupSky(skyId)
     if not skyId or skyId == "" then
         notify("Небо", "Пустой ID!", 2); return
     end
-    skyId = tostring(skyId):gsub("%s+", ""):gsub("rbxassetid://", "")
+    skyId = tostring(skyId):gsub("%s+",""):gsub("rbxassetid://","")
     local url = "rbxassetid://" .. skyId
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Sky") then obj:Destroy() end
     end
-    local sky      = Instance.new("Sky")
-    sky.SkyboxBk   = url; sky.SkyboxDn = url; sky.SkyboxFt = url
-    sky.SkyboxLf   = url; sky.SkyboxRt = url; sky.SkyboxUp = url
-    sky.Parent      = Lighting
+    local sky = Instance.new("Sky")
+    sky.SkyboxBk = url; sky.SkyboxDn = url; sky.SkyboxFt = url
+    sky.SkyboxLf = url; sky.SkyboxRt = url; sky.SkyboxUp = url
+    sky.Parent = Lighting
     notify("Небо", "Применено: " .. skyId, 2)
 end
 
@@ -477,30 +476,27 @@ end
 -- ========================================
 
 local function setupRGBHumanoid()
-    safeDisconnect(Cache.RGBConnection)
-    Cache.RGBConnection = nil
+    safeDisconnect(Cache.RGBConnection); Cache.RGBConnection = nil
     if not Settings.RGBHumanoid then
-        local char = LocalPlayer.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
+        if LocalPlayer.Character then
+            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                 if part:IsA("BasePart") then
-                    part.Material     = Enum.Material.Plastic
-                    part.Color        = Color3.fromRGB(255, 255, 255)
-                    part.Transparency = 0
+                    part.Material    = Enum.Material.Plastic
+                    part.Color       = Color3.fromRGB(255,255,255)
+                    part.Transparency= 0
                 end
             end
         end
         return
     end
     Cache.RGBConnection = RunService.Heartbeat:Connect(function()
-        local char = LocalPlayer.Character
-        if not char then return end
+        if not LocalPlayer.Character then return end
         local color = Color3.fromHSV(tick() % 1, 1, 1)
-        for _, part in ipairs(char:GetDescendants()) do
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.Material     = Enum.Material.ForceField
-                part.Color        = color
-                part.Transparency = 0.3
+                part.Material    = Enum.Material.ForceField
+                part.Color       = color
+                part.Transparency= 0.3
             end
         end
     end)
@@ -534,8 +530,8 @@ end
 -- ========================================
 
 local function createJumpCircle(originPos)
-    local groundY  = getGroundY(originPos)
-    local ringPos  = Vector3.new(originPos.X, groundY + 0.08, originPos.Z)
+    local groundY = getGroundY(originPos)
+    local ringPos = Vector3.new(originPos.X, groundY + 0.08, originPos.Z)
 
     local ring           = Instance.new("Part")
     ring.Shape           = Enum.PartType.Cylinder
@@ -565,11 +561,11 @@ local function createJumpCircle(originPos)
             pcall(function() ring:Destroy() end)
             safeDisconnect(conn); return
         end
-        local diameter       = 0.5 + p * 6
-        ring.Size            = Vector3.new(0.08, diameter, diameter)
-        ring.Transparency    = p
-        ring.CFrame          = CFrame.new(ringPos) * CFrame.Angles(0, 0, math.rad(90))
-        light.Brightness     = 4 * (1 - p)
+        local diameter    = 0.5 + p * 6
+        ring.Size         = Vector3.new(0.08, diameter, diameter)
+        ring.Transparency = p
+        ring.CFrame       = CFrame.new(ringPos) * CFrame.Angles(0, 0, math.rad(90))
+        light.Brightness  = 4 * (1 - p)
     end)
 end
 
@@ -592,7 +588,8 @@ end
 local PREDICT_TIME = 0.3
 
 local function getPredictedHRPPos(player)
-    local hrp = getHRP(player)
+    if not player or not player.Character then return nil end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     local vel = hrp.AssemblyLinearVelocity
     return hrp.Position + Vector3.new(vel.X, 0, vel.Z) * PREDICT_TIME
@@ -603,8 +600,10 @@ local function getClosestMurderInFov()
     local bestP    = nil
     local bestDist = math.huge
     for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer or not checkKnife(player) then continue end
-        local hrp = getHRP(player)
+        if player == LocalPlayer  then continue end
+        if not checkKnife(player) then continue end
+        if not player.Character   then continue end
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
         local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
         if not onScreen or sp.Z < 0 then continue end
@@ -639,22 +638,22 @@ local function setupFovAimbot()
 
     Cache.FovConnection = RunService.RenderStepped:Connect(function()
         if not Settings.FovAimbotEnabled then circle.Visible = false return end
-        local center        = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        circle.Position     = center
-        circle.Radius       = Settings.FovRadius
-        circle.Visible      = true
-        local target        = getClosestMurderInFov()
+        local center    = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        circle.Position = center
+        circle.Radius   = Settings.FovRadius
+        circle.Visible  = true
+        local target    = getClosestMurderInFov()
         if target then
-            circle.Color    = COLORS.Red
-            circle.Thickness= 2.0
-            local predicted = getPredictedHRPPos(target)
+            circle.Color     = COLORS.Red
+            circle.Thickness = 2.0
+            local predicted  = getPredictedHRPPos(target)
             if not predicted then return end
-            -- Плавное наведение (Lerp вместо жёсткого снэпа)
-            local targetCF  = CFrame.lookAt(Camera.CFrame.Position, predicted, Camera.CFrame.UpVector)
-            Camera.CFrame   = Camera.CFrame:Lerp(targetCF, 0.2)
+            -- плавное наведение вместо жёсткого снэпа
+            local targetCF   = CFrame.lookAt(Camera.CFrame.Position, predicted, Camera.CFrame.UpVector)
+            Camera.CFrame    = Camera.CFrame:Lerp(targetCF, 0.2)
         else
-            circle.Color    = COLORS.White
-            circle.Thickness= 1.5
+            circle.Color     = COLORS.White
+            circle.Thickness = 1.5
         end
     end)
 end
@@ -683,7 +682,7 @@ end
 local function killAllPlayers()
     if Cache.KillAllRunning then stopKillAll() return end
     if not getLocalKnife() then
-        notify("Kill All", "Нож не найден!", 3) return
+        notify("Kill All", "Нож не найден!", 3); return
     end
     Cache.KillAllRunning = true
     local killRemote     = findKillRemote()
@@ -705,16 +704,21 @@ local function killAllPlayers()
 
             local targets = {}
             for _, p in ipairs(Players:GetPlayers()) do
-                local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-                if p ~= LocalPlayer and hum and hum.Health > 0 and getHRP(p) then
+                if p ~= LocalPlayer
+                    and p.Character
+                    and p.Character:FindFirstChild("HumanoidRootPart")
+                    and p.Character:FindFirstChildOfClass("Humanoid")
+                    and p.Character.Humanoid.Health > 0
+                then
                     table.insert(targets, p)
                 end
             end
 
             for _, target in ipairs(targets) do
                 if not Cache.KillAllRunning then break end
-                local tHRP = getHRP(target)
-                local tHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+                if not target.Character then continue end
+                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                local tHum = target.Character:FindFirstChildOfClass("Humanoid")
                 if not tHRP or not tHum or tHum.Health <= 0 then continue end
 
                 myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, 1.5)
@@ -731,15 +735,17 @@ local function killAllPlayers()
                 end
 
                 local clicks = 0
-                while Cache.KillAllRunning and target.Character
+                while Cache.KillAllRunning
+                    and target.Character
                     and target.Character:FindFirstChildOfClass("Humanoid")
                     and target.Character.Humanoid.Health > 0
                     and clicks < 8
                 do
-                    pcall(function() mouse1press() end)   task.wait(0.03)
+                    pcall(function() mouse1press()  end) task.wait(0.03)
                     pcall(function() mouse1release() end)
                     pcall(function()
-                        firetouchinterest(myHRP, tHRP, 0) task.wait(0.02)
+                        firetouchinterest(myHRP, tHRP, 0)
+                        task.wait(0.02)
                         firetouchinterest(myHRP, tHRP, 1)
                     end)
                     clicks = clicks + 1; task.wait(0.05)
@@ -762,11 +768,10 @@ local function setupAntiAFK()
     if not Settings.AntiAFKEnabled then return end
     local last = 0
     afkConn = RunService.Heartbeat:Connect(function()
-        local char = LocalPlayer.Character
-        if not char then return end
+        if not LocalPlayer.Character then return end
         local now = tick()
         if now - last > 60 then
-            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if hum then hum.Jump = true; last = now end
         end
     end)
@@ -778,29 +783,26 @@ end
 
 local function getCurrentCoins()
     local ok, res = pcall(function()
-        -- Динамический поиск текстлейбла с монетами
-        local pg   = LocalPlayer.PlayerGui
-        local label = pg:FindFirstChild("Coins", true)
-        return label and label.Text or "0"
+        return LocalPlayer.PlayerGui.MainGUI.Game.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins.Text
     end)
     return ok and (tonumber(res) or 0) or 0
 end
 
 local function getValidCoins()
     local coins = {}
-    local hrp   = getHRP(LocalPlayer)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return coins end
     for _, map in pairs(Workspace:GetChildren()) do
         local container = map:FindFirstChild("CoinContainer")
         if container then
             for _, coin in pairs(container:GetChildren()) do
                 if coin.Name == "Coin_Server" and coin:IsA("BasePart") and coin:FindFirstChild("TouchInterest") then
-                    table.insert(coins, {part = coin, distance = (hrp.Position - coin.Position).Magnitude})
+                    table.insert(coins, {part=coin, distance=(hrp.Position-coin.Position).Magnitude})
                 end
             end
         end
     end
-    table.sort(coins, function(a, b) return a.distance < b.distance end)
+    table.sort(coins, function(a,b) return a.distance < b.distance end)
     return coins
 end
 
@@ -814,13 +816,13 @@ local function tweenToCoin(coin)
     if (hrp.Position - target).Magnitude < 5 then return true end
     if Cache.CurrentTween then pcall(function() Cache.CurrentTween:Cancel() end) end
     Cache.CurrentTween = TweenService:Create(hrp,
-        TweenInfo.new((hrp.Position - target).Magnitude / Settings.AutoFarmSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        TweenInfo.new((hrp.Position-target).Magnitude / Settings.AutoFarmSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {CFrame = CFrame.new(target)}
     )
     hum.Sit = true
     Cache.CurrentTween:Play()
     local done = false
-    local c; c = Cache.CurrentTween.Completed:Connect(function() done = true; safeDisconnect(c) end)
+    local c; c = Cache.CurrentTween.Completed:Connect(function() done=true; safeDisconnect(c) end)
     local t0 = tick()
     while not done and Settings.AutoFarmEnabled do
         task.wait(0.1)
@@ -838,7 +840,7 @@ end
 
 local function collectCoin(coin)
     if not coin or not coin.Parent then return end
-    local hrp = getHRP(LocalPlayer)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     pcall(function()
         firetouchinterest(hrp, coin, 0)
@@ -877,9 +879,8 @@ local function setupAutoFarm()
         Cache.AutoFarmConn = task.spawn(farmLoop)
         notify("Авто-фарм", "Запущен", 3)
     else
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if hum then hum.Sit = false end
         end
         if Cache.CurrentTween then
@@ -904,7 +905,6 @@ local FlyState = {
     DownHeld     = false,
 }
 
--- Удаляем мобильные GUI кнопки
 local function removeFlyMobileUI()
     FlyState.UpHeld   = false
     FlyState.DownHeld = false
@@ -914,7 +914,6 @@ local function removeFlyMobileUI()
     end
 end
 
--- Создаём аккуратные мобильные кнопки (без эмодзи, понятные)
 local function createFlyMobileUI()
     removeFlyMobileUI()
 
@@ -926,47 +925,43 @@ local function createFlyMobileUI()
     gui.Parent             = LocalPlayer:WaitForChild("PlayerGui")
     FlyState.MobileGui     = gui
 
-    -- Контейнер для кнопок
-    local frame            = Instance.new("Frame")
-    frame.Size             = UDim2.new(0, 180, 0, 100)
-    frame.Position         = UDim2.new(0, 20, 1, -130)
-    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    frame.BackgroundTransparency = 0.2
-    frame.BorderSizePixel  = 0
-    frame.Parent           = gui
+    local frame                     = Instance.new("Frame")
+    frame.Size                      = UDim2.new(0, 180, 0, 100)
+    frame.Position                  = UDim2.new(0, 20, 1, -130)
+    frame.BackgroundColor3          = Color3.fromRGB(15, 15, 15)
+    frame.BackgroundTransparency    = 0.2
+    frame.BorderSizePixel           = 0
+    frame.Parent                    = gui
 
-    local corner           = Instance.new("UICorner")
-    corner.CornerRadius    = UDim.new(0, 12)
-    corner.Parent          = frame
+    local corner        = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent       = frame
 
-    -- Подпись
-    local label            = Instance.new("TextLabel")
-    label.Size             = UDim2.new(1, 0, 0, 24)
-    label.Position         = UDim2.new(0, 0, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text             = "Полёт"
-    label.TextColor3       = Color3.fromRGB(180, 180, 180)
-    label.Font             = Enum.Font.GothamBold
-    label.TextScaled       = true
-    label.Parent           = frame
+    local label                     = Instance.new("TextLabel")
+    label.Size                      = UDim2.new(1, 0, 0, 24)
+    label.Position                  = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency    = 1
+    label.Text                      = "Полёт"
+    label.TextColor3                = Color3.fromRGB(180, 180, 180)
+    label.Font                      = Enum.Font.GothamBold
+    label.TextScaled                = true
+    label.Parent                    = frame
 
     local function makeButton(text, posX, onDown, onUp)
-        local btn                   = Instance.new("TextButton")
-        btn.Size                    = UDim2.new(0, 78, 0, 60)
-        btn.Position                = UDim2.new(0, posX, 0, 28)
-        btn.BackgroundColor3        = Color3.fromRGB(138, 43, 226)
-        btn.BackgroundTransparency  = 0.25
-        btn.TextColor3              = Color3.fromRGB(255, 255, 255)
-        btn.Text                    = text
-        btn.Font                    = Enum.Font.GothamBold
-        btn.TextScaled              = true
-        btn.BorderSizePixel         = 0
-        btn.Parent                  = frame
-
-        local c2 = Instance.new("UICorner")
+        local btn                       = Instance.new("TextButton")
+        btn.Size                        = UDim2.new(0, 78, 0, 60)
+        btn.Position                    = UDim2.new(0, posX, 0, 28)
+        btn.BackgroundColor3            = Color3.fromRGB(138, 43, 226)
+        btn.BackgroundTransparency      = 0.25
+        btn.TextColor3                  = Color3.fromRGB(255, 255, 255)
+        btn.Text                        = text
+        btn.Font                        = Enum.Font.GothamBold
+        btn.TextScaled                  = true
+        btn.BorderSizePixel             = 0
+        btn.Parent                      = frame
+        local c2        = Instance.new("UICorner")
         c2.CornerRadius = UDim.new(0, 10)
         c2.Parent       = btn
-
         btn.MouseButton1Down:Connect(onDown)
         btn.MouseButton1Up:Connect(onUp)
         return btn
@@ -986,7 +981,6 @@ local function stopFly()
     FlyState.Active = false
     safeDisconnect(FlyState.Connection)
     FlyState.Connection = nil
-
     workspace.Gravity = FlyState.OrigGravity
 
     local char = LocalPlayer.Character
@@ -1003,7 +997,6 @@ local function stopFly()
         pcall(function() FlyState.BodyGyro:Destroy() end)
         FlyState.BodyGyro = nil
     end
-
     removeFlyMobileUI()
 end
 
@@ -1021,20 +1014,17 @@ local function startFly()
     workspace.Gravity    = 0
     hum.PlatformStand    = true
 
-    -- Удаляем старые физические объекты
     for _, cls in ipairs({"BodyVelocity", "BodyGyro"}) do
         local old = hrp:FindFirstChildOfClass(cls)
         if old then old:Destroy() end
     end
 
-    -- BodyVelocity
     local bv          = Instance.new("BodyVelocity")
     bv.MaxForce       = Vector3.new(1e8, 1e8, 1e8)
     bv.Velocity       = Vector3.new(0, 0, 0)
     bv.Parent         = hrp
     FlyState.BodyVelocity = bv
 
-    -- BodyGyro
     local bg          = Instance.new("BodyGyro")
     bg.MaxTorque      = Vector3.new(1e8, 1e8, 1e8)
     bg.P              = 3000
@@ -1043,7 +1033,6 @@ local function startFly()
     bg.Parent         = hrp
     FlyState.BodyGyro = bg
 
-    -- GUI для мобайла
     createFlyMobileUI()
 
     FlyState.Connection = RunService.RenderStepped:Connect(function()
@@ -1055,16 +1044,14 @@ local function startFly()
         hum  = char:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum then stopFly() return end
 
-        local bvActive = FlyState.BodyVelocity and FlyState.BodyVelocity.Parent
-        local bgActive = FlyState.BodyGyro     and FlyState.BodyGyro.Parent
-        if not bvActive or not bgActive then stopFly() return end
+        if not (FlyState.BodyVelocity and FlyState.BodyVelocity.Parent) then stopFly() return end
+        if not (FlyState.BodyGyro     and FlyState.BodyGyro.Parent)     then stopFly() return end
 
         local camCF   = Camera.CFrame
         local moveDir = Vector3.new(0, 0, 0)
         local speed   = Settings.FlySpeed
         local vert    = speed * 0.7
 
-        -- Горизонталь: MoveDirection от джойстика / WASD
         local md = hum.MoveDirection
         if md.Magnitude > 0.1 then
             local flat = Vector3.new(md.X, 0, md.Z)
@@ -1073,7 +1060,6 @@ local function startFly()
             end
         end
 
-        -- ПК: WASD через камеру (переопределяет MoveDirection)
         if UserInputService.KeyboardEnabled then
             local kbDir = Vector3.new(0, 0, 0)
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then kbDir += camCF.LookVector  end
@@ -1083,18 +1069,16 @@ local function startFly()
             if kbDir.Magnitude > 0.01 then
                 moveDir = Vector3.new(kbDir.X, 0, kbDir.Z).Unit * speed
             end
-            -- Вертикаль ПК
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space)      then moveDir += Vector3.new(0, vert, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)  then moveDir -= Vector3.new(0, vert, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space)     then moveDir += Vector3.new(0, vert, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir -= Vector3.new(0, vert, 0) end
         end
 
-        -- Вертикаль мобайл
         if FlyState.UpHeld   then moveDir += Vector3.new(0, vert, 0) end
         if FlyState.DownHeld then moveDir -= Vector3.new(0, vert, 0) end
 
         FlyState.BodyVelocity.Velocity = moveDir
 
-        -- ИСПРАВЛЕНО: правильно извлекаем ry из камеры
+        -- ИСПРАВЛЕНО: правильный BodyGyro без бага ToEulerAnglesYXZ
         local _, ry, _ = camCF:ToEulerAnglesYXZ()
         FlyState.BodyGyro.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, ry, 0)
     end)
@@ -1104,57 +1088,52 @@ end
 -- ===== BUNNY HOP =====
 -- ========================================
 
-local BHop = {
-    Active     = false,
-    BV         = nil,
-    Connection = nil,
-}
+local bhopConn   = nil
+local bhopBV     = nil
+local bhopActive = false
 
 local function stopBHop()
-    BHop.Active = false
-    safeDisconnect(BHop.Connection)
-    BHop.Connection = nil
-    if BHop.BV then pcall(function() BHop.BV:Destroy() end) BHop.BV = nil end
+    bhopActive = false
+    safeDisconnect(bhopConn); bhopConn = nil
+    if bhopBV then pcall(function() bhopBV:Destroy() end) bhopBV = nil end
 end
 
 local function startBHop()
     if not LocalPlayer.Character then return end
-    if BHop.Active then stopBHop() end
+    if bhopActive then stopBHop() end
 
     local char = LocalPlayer.Character
     local hum  = char:FindFirstChildOfClass("Humanoid")
     local hrp  = char:FindFirstChild("HumanoidRootPart")
     if not hum or not hrp then return end
 
-    BHop.Active = true
-
-    BHop.BV          = Instance.new("BodyVelocity")
-    BHop.BV.Name     = "BHopBV"
-    BHop.BV.MaxForce = Vector3.new(1e5, 0, 1e5)
-    BHop.BV.Velocity = Vector3.new(0, 0, 0)
-    BHop.BV.Parent   = hrp
+    bhopActive      = true
+    bhopBV          = Instance.new("BodyVelocity")
+    bhopBV.Name     = "BHopBV"
+    bhopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
+    bhopBV.Velocity = Vector3.new(0, 0, 0)
+    bhopBV.Parent   = hrp
 
     local lastJump = 0
     local COOLDOWN = 0.15
 
-    BHop.Connection = RunService.Stepped:Connect(function()
-        if not BHop.Active then stopBHop() return end
-        char = LocalPlayer.Character
-        if not char then return end
+    bhopConn = RunService.Stepped:Connect(function()
+        if not bhopActive then stopBHop() return end
+        char = LocalPlayer.Character; if not char then return end
         hum  = char:FindFirstChildOfClass("Humanoid")
         hrp  = char:FindFirstChild("HumanoidRootPart")
         if not hum or not hrp then return end
 
-        if not BHop.BV or not BHop.BV.Parent then
-            BHop.BV          = Instance.new("BodyVelocity")
-            BHop.BV.Name     = "BHopBV"
-            BHop.BV.MaxForce = Vector3.new(1e5, 0, 1e5)
-            BHop.BV.Velocity = Vector3.new(0, 0, 0)
-            BHop.BV.Parent   = hrp
+        if not bhopBV or not bhopBV.Parent then
+            bhopBV          = Instance.new("BodyVelocity")
+            bhopBV.Name     = "BHopBV"
+            bhopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
+            bhopBV.Velocity = Vector3.new(0, 0, 0)
+            bhopBV.Parent   = hrp
         end
 
-        local md       = hum.MoveDirection
-        local moving   = md.Magnitude > 0.1
+        local moveDir  = hum.MoveDirection
+        local isMoving = moveDir.Magnitude > 0.1
         local state    = hum:GetState()
         local onGround = (
             state == Enum.HumanoidStateType.Running or
@@ -1162,15 +1141,17 @@ local function startBHop()
             state == Enum.HumanoidStateType.RunningNoPhysics
         )
 
-        if moving then
-            local flat = Vector3.new(md.X, 0, md.Z)
-            if flat.Magnitude > 0.01 then BHop.BV.Velocity = flat.Unit * Settings.BHopSpeed end
+        if isMoving then
+            local horizontal = Vector3.new(moveDir.X, 0, moveDir.Z)
+            if horizontal.Magnitude > 0.01 then
+                bhopBV.Velocity = horizontal.Unit * Settings.BHopSpeed
+            end
             if onGround and tick() - lastJump > COOLDOWN then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 lastJump = tick()
             end
         else
-            BHop.BV.Velocity = Vector3.new(0, 0, 0)
+            bhopBV.Velocity = Vector3.new(0, 0, 0)
         end
     end)
 end
@@ -1179,19 +1160,16 @@ end
 -- ===== SPIN BOT =====
 -- ========================================
 
-local SpinBot  = {Enabled = false, Speed = 9999}
+local SpinBot  = {Enabled=false, Speed=9999}
 local spinConn = nil
 
 local function setupSpinBot()
     safeDisconnect(spinConn); spinConn = nil
     if not SpinBot.Enabled then return end
     spinConn = RunService.Heartbeat:Connect(function(dt)
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed * dt), 0)
-        end
+        if not LocalPlayer.Character then return end
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed * dt), 0) end
     end)
 end
 
@@ -1226,12 +1204,11 @@ local function setupAntiFling()
         if hrp.AssemblyLinearVelocity.Magnitude  > 200 then hrp.AssemblyLinearVelocity  = Vector3.new(0,0,0) end
         if hrp.AssemblyAngularVelocity.Magnitude >  20 then hrp.AssemblyAngularVelocity = Vector3.new(0,0,0) end
     end)
-
     antiFlingNewConn = Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(newChar)
+        player.CharacterAdded:Connect(function(charNew)
             task.wait(0.5)
             if not Settings.AntiFlingEnabled then return end
-            for _, part in ipairs(newChar:GetDescendants()) do
+            for _, part in ipairs(charNew:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
         end)
@@ -1248,34 +1225,26 @@ local noclipConn = nil
 -- ===== MAIN UPDATE LOOP =====
 -- ========================================
 
+local mainConn = nil
+
 local function updateVisuals()
     for _, player in ipairs(Players:GetPlayers()) do
-        -- Чамс для ВСЕХ игроков (включая себя)
-        if Settings.ChamsEnabled then
-            applyChams(player)
-        else
-            removeChams(player)
+        if player == LocalPlayer then
+            if Settings.ChamsEnabled then applyChams(player)
+            elseif Cache.ChamsObjects[player.UserId] then removeChams(player) end
+            continue
         end
-
-        if player == LocalPlayer then continue end
-        if not player.Character  then continue end
-
-        -- ESP
+        if not player.Character then continue end
         local role = getRole(player)
-        if     Settings.MurderESP   and role == "Murder"   then createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP  and role == "Sheriff"  then createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent)
-        else   removeHighlight(player) end
-
-        -- Трейсеры
-        if Settings.TracersEnabled and not Cache.Tracers[player.UserId] then
-            createTracer(player)
-        end
+        if     Settings.MurderESP   and role=="Murder"   then createOrUpdateHighlight(player,COLORS.Murder)
+        elseif Settings.SheriffESP  and role=="Sheriff"  then createOrUpdateHighlight(player,COLORS.Sheriff)
+        elseif Settings.InnocentESP and role=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent)
+        else removeHighlight(player) end
+        if Settings.ChamsEnabled then applyChams(player)
+        elseif Cache.ChamsObjects[player.UserId] then removeChams(player) end
+        if Settings.TracersEnabled and not Cache.Tracers[player.UserId] then createTracer(player) end
     end
-
     if Settings.TracersEnabled then updateTracers() else clearAllTracers() end
-
-    -- Трейл
     if Settings.Trails then
         local obj = Cache.TrailObjects
         if not obj.trail or not obj.trail.Parent then
@@ -1287,11 +1256,11 @@ local function updateVisuals()
 end
 
 local function startMainUpdate()
-    safeDisconnect(Cache.MainConn)
-    Cache.MainConn = RunService.Heartbeat:Connect(function()
-        local anyVisual = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP
-                       or Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
-        if anyVisual then updateVisuals() end
+    safeDisconnect(mainConn)
+    mainConn = RunService.Heartbeat:Connect(function()
+        local any = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP
+                 or Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
+        if any then updateVisuals() end
         if Settings.JumpCircles then updateJumpCircles() end
     end)
 end
@@ -1329,98 +1298,82 @@ end
 -- ========================================
 
 -- ===== RAGE TAB =====
-local RageTab = Window:Tab({Title = "Рейдж",   Icon = "sword"})
-local RageL   = RageTab:Section({Title = "Движение",   Side = "Left"})
-local RageR   = RageTab:Section({Title = "Полёт",      Side = "Right"})
+local RageTab = Window:Tab({Title="Рейдж", Icon="sword"})
+local RageL   = RageTab:Section({Title="Движение",  Side="Left"})
+local RageR   = RageTab:Section({Title="Полёт",     Side="Right"})
 
--- Движение
-RageL:Toggle({Title = "Банни-хоп", Default = false, Callback = function(v)
-    Settings.BHopEnabled = v
-    if v then startBHop() else stopBHop() end
-end})
-
-RageL:Input({Title = "Скорость Банни-хопа", Default = "30", Placeholder = "30", Callback = function(v)
-    local n = tonumber(v); if n then Settings.BHopSpeed = n end
-end})
-
-RageL:Separator()
-
-RageL:Toggle({Title = "Спин-бот", Default = false, Callback = function(v)
-    SpinBot.Enabled = v; setupSpinBot()
-end})
-
-RageL:Input({Title = "Скорость спина", Default = "9999", Placeholder = "9999", Callback = function(v)
-    local n = tonumber(v); if n then SpinBot.Speed = n end
-end})
-
--- Полёт (правая колонка — отдельный раздел)
-RageR:Toggle({Title = "Включить полёт", Default = false, Callback = function(v)
+-- Полёт — правая колонка
+RageR:Toggle({Title="Полёт (ПК + Мобайл)", Default=false, Callback=function(v)
     Settings.FlyEnabled = v
     if v then startFly() else stopFly() end
 end})
+RageR:Input({Title="Скорость полёта", Default="60", Placeholder="60", Callback=function(v)
+    local n=tonumber(v); if n then Settings.FlySpeed=n end
+end})
+RageR:Label({Title="ПК: WASD — движение, Пробел — вверх, Shift — вниз"})
+RageR:Label({Title="Мобайл: кнопки Вверх / Вниз на экране"})
 
-RageR:Input({Title = "Скорость полёта", Default = "60", Placeholder = "60", Callback = function(v)
-    local n = tonumber(v); if n then Settings.FlySpeed = n end
+-- Движение — левая колонка
+RageL:Toggle({Title="Банни-хоп (ПК + Мобайл)", Default=false, Callback=function(v)
+    Settings.BHopEnabled = v
+    if v then startBHop() else stopBHop() end
+end})
+RageL:Input({Title="Скорость Банни-хопа", Default="30", Placeholder="30", Callback=function(v)
+    local n=tonumber(v); if n then Settings.BHopSpeed=n end
+end})
+RageL:Toggle({Title="Спин-бот", Default=false, Callback=function(v)
+    SpinBot.Enabled = v; setupSpinBot()
+end})
+RageL:Input({Title="Скорость спина", Default="9999", Placeholder="9999", Callback=function(v)
+    local n=tonumber(v); if n then SpinBot.Speed=n end
 end})
 
-RageR:Separator()
-
-RageR:Label({Title = "ПК:  W/A/S/D — направление"})
-RageR:Label({Title = "ПК:  Пробел — вверх"})
-RageR:Label({Title = "ПК:  Shift — вниз"})
-RageR:Label({Title = "Моб: кнопки Вверх / Вниз"})
-
 -- ===== COMBAT TAB =====
-local CombatTab = Window:Tab({Title = "Бой",     Icon = "crosshair"})
-local CombatL   = CombatTab:Section({Title = "Инструменты",  Side = "Left"})
-local CombatR   = CombatTab:Section({Title = "Прицел",       Side = "Right"})
+local CombatTab = Window:Tab({Title="Бой",     Icon="crosshair"})
+local CombatL   = CombatTab:Section({Title="Инструменты", Side="Left"})
+local CombatR   = CombatTab:Section({Title="Прицел",      Side="Right"})
 
-CombatL:Toggle({Title = "Без коллизий (нет клип)", Default = false, Callback = function(v)
+CombatL:Toggle({Title="Нет клипа (Нет коллизий)", Default=false, Callback=function(v)
     safeDisconnect(noclipConn); noclipConn = nil
     if not v then return end
     noclipConn = RunService.Stepped:Connect(function()
-        local char = LocalPlayer.Character
-        if not char then return end
-        for _, part in ipairs(char:GetDescendants()) do
+        if not LocalPlayer.Character then return end
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
             if part:IsA("BasePart") then part.CanCollide = false end
         end
     end)
 end})
 
-CombatL:Toggle({Title = "Защита от флинга", Default = false, Callback = function(v)
+CombatL:Toggle({Title="Защита от флинга", Default=false, Callback=function(v)
     Settings.AntiFlingEnabled = v; setupAntiFling()
 end})
 
-CombatL:Separator()
-
-CombatL:Button({Title = "Подобрать пистолет", Callback = function()
+CombatL:Button({Title="Подобрать пистолет", Callback=function()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Tool") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol")) then
             local handle = obj:FindFirstChild("Handle")
-            if handle then
-                local hrp = getHRP(LocalPlayer)
+            if handle and LocalPlayer.Character then
+                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
-                    notify("Пистолет", "Телепортирован к пистолету", 2); break
+                    hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0,3,0))
+                    notify("Пистолет", "Телепортирован!", 2); break
                 end
             end
         end
     end
 end})
 
-CombatL:Button({Title = "Убить всех  (повторно = стоп)", Callback = function()
+CombatL:Button({Title="Убить всех (повторно = стоп)", Callback=function()
     killAllPlayers()
 end})
 
--- Прицел
-CombatR:Toggle({Title = "FOV Прицел (Убийца)", Default = false, Callback = function(v)
+CombatR:Toggle({Title="FOV Прицел (Убийца)", Default=false, Callback=function(v)
     Settings.FovAimbotEnabled = v
     if v then createFovCircle() end
     setupFovAimbot()
 end})
-
-CombatR:Input({Title = "Радиус FOV", Default = "120", Placeholder = "120", Callback = function(v)
-    local n = tonumber(v)
+CombatR:Input({Title="Радиус FOV", Default="120", Placeholder="120", Callback=function(v)
+    local n=tonumber(v)
     if n then
         Settings.FovRadius = math.clamp(n, 10, 600)
         if Cache.FovCircle then Cache.FovCircle.Radius = Settings.FovRadius end
@@ -1428,103 +1381,73 @@ CombatR:Input({Title = "Радиус FOV", Default = "120", Placeholder = "120",
 end})
 
 -- ===== VISUAL TAB =====
-local VisualTab = Window:Tab({Title = "Визуал",   Icon = "eye"})
-local VisualL   = VisualTab:Section({Title = "ESP и эффекты",     Side = "Left"})
-local VisualR   = VisualTab:Section({Title = "Мир и небо",        Side = "Right"})
+local VisualTab = Window:Tab({Title="Визуал",    Icon="eye"})
+local VisualL   = VisualTab:Section({Title="ESP и эффекты",  Side="Left"})
+local VisualR   = VisualTab:Section({Title="Мир и небо",     Side="Right"})
 
-VisualL:Toggle({Title = "ESP Убийца",       Default = false, Callback = function(v) Settings.MurderESP=v   startMainUpdate() end})
-VisualL:Toggle({Title = "ESP Шериф",        Default = false, Callback = function(v) Settings.SheriffESP=v  startMainUpdate() end})
-VisualL:Toggle({Title = "ESP Невинный",     Default = false, Callback = function(v) Settings.InnocentESP=v startMainUpdate() end})
-
-VisualL:Separator()
-
-VisualL:Toggle({Title = "Чамс (контур сквозь стены)", Default = false, Callback = function(v)
+VisualL:Toggle({Title="ESP Убийца",                  Default=false, Callback=function(v) Settings.MurderESP=v   startMainUpdate() end})
+VisualL:Toggle({Title="ESP Шериф",                   Default=false, Callback=function(v) Settings.SheriffESP=v  startMainUpdate() end})
+VisualL:Toggle({Title="ESP Невинный",                Default=false, Callback=function(v) Settings.InnocentESP=v startMainUpdate() end})
+VisualL:Toggle({Title="Чамс (контур сквозь стены)",  Default=false, Callback=function(v)
     Settings.ChamsEnabled = v
     if not v then clearAllChams() end
     startMainUpdate()
 end})
-
-VisualL:Toggle({Title = "Трейсеры (линии к игрокам)", Default = false, Callback = function(v)
+VisualL:Toggle({Title="Трейсеры (линии к игрокам)",  Default=false, Callback=function(v)
     Settings.TracersEnabled = v
     if v then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then createTracer(p) end
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p~=LocalPlayer then createTracer(p) end
         end
     else clearAllTracers() end
     startMainUpdate()
 end})
-
-VisualL:Separator()
-
-VisualL:Toggle({Title = "Круги прыжка (на полу)", Default = false, Callback = function(v)
+VisualL:Toggle({Title="Круги прыжка (на полу)",      Default=false, Callback=function(v)
     Settings.JumpCircles = v; startMainUpdate()
 end})
-
-VisualL:Toggle({Title = "Фиолетовый трейл", Default = false, Callback = function(v)
+VisualL:Toggle({Title="Фиолетовый трейл",            Default=false, Callback=function(v)
     Settings.Trails = v
     if v then createLocalPlayerTrail() else removeLocalPlayerTrail() end
     startMainUpdate()
 end})
-
-VisualL:Toggle({Title = "RGB персонаж",     Default = false, Callback = function(v)
+VisualL:Toggle({Title="RGB персонаж",                Default=false, Callback=function(v)
     Settings.RGBHumanoid = v; setupRGBHumanoid()
 end})
-
-VisualL:Toggle({Title = "XRay (прозрачные стены)", Default = false, Callback = function(v)
+VisualL:Toggle({Title="XRay (прозрачные стены)",     Default=false, Callback=function(v)
     Settings.XRayEnabled = v; setupXRay()
 end})
 
-VisualR:Toggle({Title = "Блум",             Default = false, Callback = function(v) Settings.BloomEnabled=v           setupBloom(v) end})
-VisualR:Toggle({Title = "Коррекция цвета",  Default = false, Callback = function(v) Settings.ColorCorrectionEnabled=v setupColorCorrection(v) end})
-VisualR:Toggle({Title = "Виньетка",         Default = false, Callback = function(v) Settings.VignetteEnabled=v        setupVignette(v) end})
-
-VisualR:Separator()
-
-VisualR:Input({Title = "ID неба", Default = "", Placeholder = "rbxassetid://...", Callback = function(v)
-    Settings.CustomSkyId = v
+VisualR:Toggle({Title="Блум",            Default=false, Callback=function(v) Settings.BloomEnabled=v           setupBloom(v) end})
+VisualR:Toggle({Title="Коррекция цвета", Default=false, Callback=function(v) Settings.ColorCorrectionEnabled=v setupColorCorrection(v) end})
+VisualR:Toggle({Title="Виньетка",        Default=false, Callback=function(v) Settings.VignetteEnabled=v        setupVignette(v) end})
+VisualR:Input({Title="ID неба", Default="", Placeholder="rbxassetid://...", Callback=function(v)
+    Settings.CustomSkyId=v
 end})
-VisualR:Button({Title = "Применить небо",   Callback = function() setupSky(Settings.CustomSkyId) end})
-VisualR:Button({Title = "Удалить небо",     Callback = function() removeSky() end})
-
-VisualR:Separator()
-
-VisualR:Button({Title = "Небо: Хомяк",      Callback = function() setupSky("135457808082953") end})
-VisualR:Button({Title = "Небо: Ночные тучи",Callback = function() setupSky("100140210065251") end})
-VisualR:Button({Title = "Небо: Космос",     Callback = function() setupSky("97059048850342")  end})
+VisualR:Button({Title="Применить небо",    Callback=function() setupSky(Settings.CustomSkyId) end})
+VisualR:Button({Title="Удалить небо",      Callback=function() removeSky() end})
+VisualR:Button({Title="Небо: Хомяк",       Callback=function() setupSky("135457808082953") end})
+VisualR:Button({Title="Небо: Ночные тучи", Callback=function() setupSky("100140210065251") end})
+VisualR:Button({Title="Небо: Космос",      Callback=function() setupSky("97059048850342")  end})
 
 -- ===== AUTO FARM TAB =====
-local FarmTab = Window:Tab({Title = "Авто-фарм", Icon = "star"})
-local FarmL   = FarmTab:Section({Title = "Управление фармом", Side = "Left"})
-local FarmR   = FarmTab:Section({Title = "Настройки",         Side = "Right"})
+local FarmTab = Window:Tab({Title="Авто-фарм", Icon="star"})
+local FarmL   = FarmTab:Section({Title="Фарм",      Side="Left"})
+local FarmR   = FarmTab:Section({Title="Настройки", Side="Right"})
 
-FarmL:Toggle({Title = "Авто-фарм монет",    Default = false, Callback = function(v)
-    Settings.AutoFarmEnabled = v; setupAutoFarm()
-end})
-FarmL:Toggle({Title = "Авто-возрождение при полной сумке", Default = false, Callback = function(v)
-    Settings.AutoRespawn = v
-end})
-
-FarmR:Input({Title = "Скорость движения",   Default = "20",   Placeholder = "20",   Callback = function(v)
-    local n = tonumber(v); if n then Settings.AutoFarmSpeed = n end
-end})
-FarmR:Input({Title = "Лимит монет",         Default = "40",   Placeholder = "40",   Callback = function(v)
-    local n = tonumber(v); if n then Settings.AutoFarmCoinLimit = n end
-end})
-FarmR:Input({Title = "Задержка между монетами", Default = "0.15", Placeholder = "0.15", Callback = function(v)
-    local n = tonumber(v); if n then Settings.AutoFarmCoinDelay = n end
-end})
+FarmL:Toggle({Title="Авто-фарм монет",                     Default=false, Callback=function(v) Settings.AutoFarmEnabled=v setupAutoFarm() end})
+FarmL:Toggle({Title="Авто-возрождение при полной сумке",   Default=false, Callback=function(v) Settings.AutoRespawn=v end})
+FarmR:Input({Title="Скорость движения",   Default="20",   Placeholder="20",   Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmSpeed=n end end})
+FarmR:Input({Title="Лимит монет",         Default="40",   Placeholder="40",   Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmCoinLimit=n end end})
+FarmR:Input({Title="Задержка (сек)",      Default="0.15", Placeholder="0.15", Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmCoinDelay=n end end})
 
 -- ===== MISC TAB =====
-local MiscTab = Window:Tab({Title = "Разное",    Icon = "timer"})
-local MiscL   = MiscTab:Section({Title = "Прочее", Side = "Left"})
+local MiscTab = Window:Tab({Title="Разное", Icon="timer"})
+local MiscL   = MiscTab:Section({Title="Прочее", Side="Left"})
 
-MiscL:Toggle({Title = "Анти-АФК",           Default = false, Callback = function(v)
+MiscL:Toggle({Title="Анти-АФК", Default=false, Callback=function(v)
     Settings.AntiAFKEnabled = v; setupAntiAFK()
 end})
-
-MiscL:Separator()
-
-MiscL:Button({Title = "Переподключиться",   Callback = function()
+MiscL:Button({Title="Переподключиться", Callback=function()
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end})
 
@@ -1535,20 +1458,18 @@ end})
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
-        if Settings.ChamsEnabled   then applyChams(player)  end
-        if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
-
-        local role = getRole(player)
-        if     Settings.MurderESP   and role == "Murder"   then createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP  and role == "Sheriff"  then createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
-
-        if Settings.AntiFlingEnabled and player ~= LocalPlayer then
+        if Settings.ChamsEnabled then applyChams(player) end
+        if Settings.TracersEnabled and player~=LocalPlayer then createTracer(player) end
+        local role=getRole(player)
+        if     Settings.MurderESP   and role=="Murder"   then createOrUpdateHighlight(player,COLORS.Murder)
+        elseif Settings.SheriffESP  and role=="Sheriff"  then createOrUpdateHighlight(player,COLORS.Sheriff)
+        elseif Settings.InnocentESP and role=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent) end
+        if Settings.AntiFlingEnabled and player~=LocalPlayer then
             task.spawn(function()
                 task.wait(0.5)
                 if player.Character then
                     for _, part in ipairs(player.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then part.CanCollide = false end
+                        if part:IsA("BasePart") then part.CanCollide=false end
                     end
                 end
             end)
@@ -1558,54 +1479,40 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
     removeChams(player)
-    removeHighlight(player)
+    Cache.Highlights[player.UserId] = nil
     if Cache.Tracers[player.UserId] then
         pcall(function() Cache.Tracers[player.UserId]:Remove() end)
         Cache.Tracers[player.UserId] = nil
     end
 end)
 
--- Ресет персонажа — восстанавливаем всё
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
+    clearAllHighlights(); clearAllChams(); clearAllTracers()
 
-    clearAllHighlights()
-    clearAllChams()
-    clearAllTracers()
-
-    -- Пересоздаём для всех игроков
     for _, player in ipairs(Players:GetPlayers()) do
-        if Settings.ChamsEnabled   then applyChams(player)  end
-        if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
-
-        local role = getRole(player)
-        if     Settings.MurderESP   and role == "Murder"   then createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP  and role == "Sheriff"  then createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
+        if Settings.ChamsEnabled then applyChams(player) end
+        if Settings.TracersEnabled and player~=LocalPlayer then createTracer(player) end
+        local role=getRole(player)
+        if     Settings.MurderESP   and role=="Murder"   then createOrUpdateHighlight(player,COLORS.Murder)
+        elseif Settings.SheriffESP  and role=="Sheriff"  then createOrUpdateHighlight(player,COLORS.Sheriff)
+        elseif Settings.InnocentESP and role=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent) end
     end
 
-    -- Восстанавливаем эффекты локального игрока
     setupRGBHumanoid()
-    Cache.JumpTracking = {wasJumping = false}
+    Cache.JumpTracking = {wasJumping=false}
 
-    -- Трейл пересоздаётся автоматически — старый удаляем
+    -- ИСПРАВЛЕН ТРЕЙЛ: удаляем старый, создаём новый на свежем персонаже
     if Settings.Trails then
-        removeLocalPlayerTrail()        -- удалить старый (он уже уничтожен вместе с персонажем)
+        removeLocalPlayerTrail()
         task.wait(0.1)
-        createLocalPlayerTrail()        -- создать новый на свежем персонаже
+        createLocalPlayerTrail()
     end
 
-    -- Полёт
-    if Settings.FlyEnabled then
-        task.wait(0.5); startFly()
-    end
-
-    -- BHop
-    if Settings.BHopEnabled then startBHop() end
-
-    -- Прочие системы
-    if Settings.AntiFlingEnabled then setupAntiFling() end
-    if Settings.FovAimbotEnabled then setupFovAimbot() end
+    if Settings.FlyEnabled      then task.wait(0.5); startFly()  end
+    if Settings.BHopEnabled     then startBHop()                  end
+    if Settings.AntiFlingEnabled then setupAntiFling()            end
+    if Settings.FovAimbotEnabled then setupFovAimbot()            end
 end)
 
 -- ========================================
