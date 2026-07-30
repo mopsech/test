@@ -12,7 +12,7 @@ WindUI:SetTheme("Violet")
 WindUI.TransparencyValue = 0.1
 
 -- ========================================
--- ===== ПЛАШКА "RELEASE" =====
+-- ===== ПЛАШКА "РЕЛИЗ" =====
 -- ========================================
 
 local function createReleaseBadge()
@@ -23,7 +23,7 @@ local function createReleaseBadge()
     badge.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
     badge.BackgroundTransparency = 0.15
     badge.TextColor3 = Color3.fromRGB(255, 255, 255)
-    badge.Text = "Release"
+    badge.Text = "Релиз"
     badge.TextSize = 11
     badge.Font = Enum.Font.GothamBold
     badge.BorderSizePixel = 0
@@ -72,7 +72,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- ========================================
--- ===== WINDUI НОТИФЫ =====
+-- ===== УВЕДОМЛЕНИЯ WINDUI =====
 -- ========================================
 
 local function notify(title, content, duration)
@@ -142,7 +142,7 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     MobileButtons = {},
-    ButtonPositions = {},
+    MobileButtonPositions = {},
 }
 
 local COLORS = {
@@ -293,7 +293,7 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== SHOOT BUTTON =====
+-- ===== КНОПКА ВЫСТРЕЛА =====
 -- ========================================
 
 local function createShootButton()
@@ -315,7 +315,7 @@ local function createShootButton()
     button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     button.BackgroundTransparency = 0.1
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = "Shoot"
+    button.Text = "Выстрел"
     button.TextSize = 18
     button.Font = Enum.Font.GothamBold
     button.BorderSizePixel = 2
@@ -344,11 +344,10 @@ local function createShootButton()
         isHeld = false
         if not isDragging then
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            -- ВЫПОЛНЯЕМ SHOOT
             task.spawn(function()
                 if not LocalPlayer.Character then return end
                 if not equipGun() then
-                    notify("Shoot", "No weapon found", 2)
+                    notify("Выстрел", "Оружие не найдено", 2)
                     return
                 end
                 
@@ -373,7 +372,7 @@ local function createShootButton()
                 end
                 
                 if not target then
-                    notify("Shoot", "Murder not found", 2)
+                    notify("Выстрел", "Убийца не найден", 2)
                     return
                 end
                 
@@ -447,11 +446,10 @@ local function createShootButton()
         isHeld = false
         if not touchDragging then
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            -- ВЫПОЛНЯЕМ SHOOT
             task.spawn(function()
                 if not LocalPlayer.Character then return end
                 if not equipGun() then
-                    notify("Shoot", "No weapon found", 2)
+                    notify("Выстрел", "Оружие не найдено", 2)
                     return
                 end
                 
@@ -476,7 +474,7 @@ local function createShootButton()
                 end
                 
                 if not target then
-                    notify("Shoot", "Murder not found", 2)
+                    notify("Выстрел", "Убийца не найден", 2)
                     return
                 end
                 
@@ -517,7 +515,7 @@ local function toggleShootButton(enabled)
 end
 
 -- ========================================
--- ===== GRAB GUN =====
+-- ===== ЗАХВАТ ОРУЖИЯ =====
 -- ========================================
 
 local function grabGun()
@@ -531,7 +529,7 @@ local function grabGun()
                     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                     if hrp then
                         hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
-                        notify("Grab Gun", "Teleported to gun", 2)
+                        notify("Захват оружия", "Телепорт к оружию", 2)
                         found = true
                         break
                     end
@@ -540,50 +538,78 @@ local function grabGun()
         end
     end
     if not found then
-        notify("Grab Gun", "No gun found", 2)
+        notify("Захват оружия", "Оружие не найдено", 2)
     end
 end
 
 -- ========================================
--- ===== MOBILE BUTTONS =====
+-- ===== МОБИЛЬНЫЕ КНОПКИ =====
 -- ========================================
 
 local MobileButtons = {}
-local ButtonPositions = {
-    {0.1, 0.3},
-    {0.2, 0.4},
-    {0.3, 0.5},
-    {0.4, 0.3},
-    {0.5, 0.4},
-    {0.6, 0.5},
-    {0.7, 0.3},
-    {0.8, 0.4},
-}
+local MobileButtonPositions = {}
 
-local function getNextButtonPosition()
+local function getNextMobilePosition()
     local count = #MobileButtons
-    local pos = ButtonPositions[(count % #ButtonPositions) + 1]
-    return UDim2.new(pos[1], 0, pos[2], 0)
+    local x = 0.1 + (count % 3) * 0.15
+    local y = 0.2 + math.floor(count / 3) * 0.1
+    return UDim2.new(x, 0, y, 0)
 end
 
-local function createMobileButton(functionName, label)
+local function executeMobileAction(action)
+    if action == "Fly" then
+        Settings.FlyEnabled = not Settings.FlyEnabled
+        if Settings.FlyEnabled then startFly() else stopFly() end
+        notify("Мобилка", "Полёт: " .. tostring(Settings.FlyEnabled), 1)
+    elseif action == "Spin" then
+        SpinBot.Enabled = not SpinBot.Enabled
+        setupSpinBot()
+        notify("Мобилка", "Спин: " .. tostring(SpinBot.Enabled), 1)
+    elseif action == "Noclip" then
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        else
+            noclipConn = RunService.Stepped:Connect(function()
+                if not LocalPlayer.Character then return end
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end)
+        end
+        notify("Мобилка", "Ноклип: " .. tostring(noclipConn ~= nil), 1)
+    elseif action == "Aimbot" then
+        Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
+        if Settings.FovAimbotEnabled then createFovCircle() end
+        setupFovAimbot()
+        notify("Мобилка", "Аимбот: " .. tostring(Settings.FovAimbotEnabled), 1)
+    elseif action == "ESP" then
+        Settings.MurderESP = not Settings.MurderESP
+        Settings.SheriffESP = Settings.MurderESP
+        Settings.InnocentESP = Settings.MurderESP
+        startMainUpdate()
+        notify("Мобилка", "ESP: " .. tostring(Settings.MurderESP), 1)
+    end
+end
+
+local function createMobileButton(label, action)
     if MobileButtons[label] then
         pcall(function() MobileButtons[label]:Destroy() end)
         MobileButtons[label] = nil
     end
-    
+
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MobileButton_" .. label
     screenGui.ResetOnSpawn = false
     screenGui.IgnoreGuiInset = true
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    
+
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(0, 80, 0, 40)
-    button.Position = getNextButtonPosition()
+    button.Position = getNextMobilePosition()
     button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    button.BackgroundTransparency = 0.1
+    button.BackgroundTransparency = 0.2
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
     button.Text = label
     button.TextSize = 14
@@ -592,141 +618,66 @@ local function createMobileButton(functionName, label)
     button.BorderColor3 = Color3.fromRGB(60, 60, 60)
     button.Parent = screenGui
     button.ClipsDescendants = true
-    
+
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = button
-    
-    local isDragging = false
+
+    -- ПЕРЕТАСКИВАНИЕ
+    local dragging = false
+    local dragInput = nil
     local dragStart = nil
     local startPos = nil
-    local isHeld = false
-    
-    -- ДЛЯ МЫШИ
-    button.MouseButton1Down:Connect(function()
-        isHeld = true
-        dragStart = UserInputService:GetMouseLocation()
-        startPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    end)
-    
-    button.MouseButton1Up:Connect(function()
-        isHeld = false
-        if not isDragging then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            -- ВЫПОЛНЯЕМ ФУНКЦИЮ
-            executeMobileFunction(functionName)
-        else
-            isDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+
+    local function updateInput(input)
+        if not dragging then return end
+        local delta = input.Position - dragStart
+        button.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = button.Position
+            button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
         end
     end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and isHeld then
-            local delta = input.Position - dragStart
-            if delta.Magnitude > 10 then
-                isDragging = true
+
+    button.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+            updateInput(input)
+        end
+    end)
+
+    button.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            if not dragInput then
+                executeMobileAction(action)
             end
-            if isDragging then
-                button.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-            end
+            dragInput = nil
         end
     end)
-    
-    -- ДЛЯ ТЕЛЕФОНА
-    local touchStart = nil
-    local touchPos = nil
-    local touchDragging = false
-    
-    button.TouchBegan:Connect(function(touch)
-        isHeld = true
-        touchStart = touch.Position
-        touchPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    end)
-    
-    button.TouchMoved:Connect(function(touch)
-        if not isHeld then return end
-        local delta = touch.Position - touchStart
-        if delta.Magnitude > 10 then
-            touchDragging = true
-        end
-        if touchDragging then
-            button.Position = UDim2.new(
-                touchPos.X.Scale,
-                touchPos.X.Offset + delta.X,
-                touchPos.Y.Scale,
-                touchPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    
-    button.TouchEnded:Connect(function()
-        isHeld = false
-        if not touchDragging then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            executeMobileFunction(functionName)
-        else
-            touchDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        end
-    end)
-    
+
     MobileButtons[label] = screenGui
     return screenGui
-end
-
-local function executeMobileFunction(functionName)
-    if functionName == "Fly" then
-        Settings.FlyEnabled = not Settings.FlyEnabled
-        if Settings.FlyEnabled then startFly() else stopFly() end
-        notify("Mobile", "Fly: " .. tostring(Settings.FlyEnabled), 1)
-    elseif functionName == "Spin" then
-        SpinBot.Enabled = not SpinBot.Enabled
-        setupSpinBot()
-        notify("Mobile", "Spin: " .. tostring(SpinBot.Enabled), 1)
-    elseif functionName == "Noclip" then
-        Settings.NoclipEnabled = not Settings.NoclipEnabled
-        if Settings.NoclipEnabled then
-            if not noclipConn then
-                noclipConn = RunService.Stepped:Connect(function()
-                    if not LocalPlayer.Character then return end
-                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then part.CanCollide = false end
-                    end
-                end)
-            end
-        else
-            if noclipConn then
-                noclipConn:Disconnect()
-                noclipConn = nil
-            end
-        end
-        notify("Mobile", "Noclip: " .. tostring(Settings.NoclipEnabled), 1)
-    elseif functionName == "Aimbot" then
-        Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
-        if Settings.FovAimbotEnabled then createFovCircle() end
-        setupFovAimbot()
-        notify("Mobile", "Aimbot: " .. tostring(Settings.FovAimbotEnabled), 1)
-    elseif functionName == "ESP" then
-        Settings.MurderESP = not Settings.MurderESP
-        Settings.SheriffESP = Settings.MurderESP
-        Settings.InnocentESP = Settings.MurderESP
-        startMainUpdate()
-        notify("Mobile", "ESP: " .. tostring(Settings.MurderESP), 1)
-    end
 end
 
 local function removeMobileButton(label)
     if MobileButtons[label] then
         pcall(function() MobileButtons[label]:Destroy() end)
         MobileButtons[label] = nil
+        notify("Мобилка", label .. " удалена", 2)
+    else
+        notify("Мобилка", label .. " не найдена", 2)
     end
 end
 
@@ -932,7 +883,7 @@ local function removeLocalPlayerTrail()
 end
 
 -- ========================================
--- ===== SHADERS =====
+-- ===== ЭФФЕКТЫ =====
 -- ========================================
 
 local function setupBloom(en)
@@ -966,19 +917,19 @@ local function setupVignette(en)
 end
 
 -- ========================================
--- ===== SKY =====
+-- ===== НЕБО =====
 -- ========================================
 
 local function setupSky(skyId)
     if not skyId or skyId == "" then
-        notify("Sky", "Empty ID", 2)
+        notify("Небо", "Пустой ID", 2)
         return
     end
     
     skyId = tostring(skyId):gsub("%s+",""):gsub("rbxassetid://","")
     
     if not skyId:match("^%d+$") then
-        notify("Sky", "Invalid ID (numbers only)", 2)
+        notify("Небо", "Неверный ID (только цифры)", 2)
         return
     end
     
@@ -997,18 +948,18 @@ local function setupSky(skyId)
     sky.SkyboxUp = url
     sky.Parent = Lighting
     
-    notify("Sky", "Loaded: " .. skyId, 2)
+    notify("Небо", "Загружено: " .. skyId, 2)
 end
 
 local function removeSky()
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Sky") then obj:Destroy() end
     end
-    notify("Sky", "Removed", 2)
+    notify("Небо", "Удалено", 2)
 end
 
 -- ========================================
--- ===== RGB HUMANOID =====
+-- ===== RGB ПЕРСОНАЖ =====
 -- ========================================
 
 local function setupRGBHumanoid()
@@ -1061,7 +1012,7 @@ local function setupXRay()
 end
 
 -- ========================================
--- ===== JUMP CIRCLES =====
+-- ===== КРУГИ ПРЫЖКА =====
 -- ========================================
 
 local function createJumpCircle(originPos)
@@ -1118,7 +1069,7 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== FOV AIMBOT =====
+-- ===== FOV АИМБОТ =====
 -- ========================================
 
 local PREDICT_TIME = 0.3
@@ -1208,7 +1159,7 @@ local function setupFovAimbot()
 end
 
 -- ========================================
--- ===== TELEPORT TO MURDER / SHERIFF =====
+-- ===== ТЕЛЕПОРТ К УБИЙЦЕ / ШЕРИФУ =====
 -- ========================================
 
 local function teleportToRole(role)
@@ -1233,24 +1184,24 @@ local function teleportToRole(role)
     end
     
     if not target then
-        notify("Teleport", role .. " not found", 2)
+        notify("Телепорт", role .. " не найден", 2)
         return
     end
     
     local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
     if tHRP then
         myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 3, 2)
-        notify("Teleport", "Teleported to " .. role, 2)
+        notify("Телепорт", "Телепорт к " .. role, 2)
     end
 end
 
 -- ========================================
--- ===== KILL ALL =====
+-- ===== УБИТЬ ВСЕХ =====
 -- ========================================
 
 local function stopKillAll()
     Cache.KillAllRunning = false
-    notify("Kill All", "Stopped", 2)
+    notify("Убить всех", "Остановлено", 2)
 end
 
 local function findKillRemote()
@@ -1269,13 +1220,13 @@ local function killAllPlayers()
     if Cache.KillAllRunning then stopKillAll() return end
 
     if not getLocalKnife() then
-        notify("Kill All", "No knife found", 3)
+        notify("Убить всех", "Нож не найден", 3)
         return
     end
 
     Cache.KillAllRunning = true
     local killRemote = findKillRemote()
-    notify("Kill All", "Fast mode started", 2)
+    notify("Убить всех", "Быстрый режим", 2)
 
     task.spawn(function()
         while Cache.KillAllRunning do
@@ -1295,7 +1246,7 @@ local function killAllPlayers()
             end
 
             if #targets == 0 then
-                notify("Kill All", "All dead", 2)
+                notify("Убить всех", "Все мертвы", 2)
                 Cache.KillAllRunning = false
                 break
             end
@@ -1341,7 +1292,7 @@ local function killAllPlayers()
 end
 
 -- ========================================
--- ===== ANTI-AFK =====
+-- ===== ЗАЩИТА ОТ АФК =====
 -- ========================================
 
 local afkConn = nil
@@ -1361,7 +1312,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== AUTO FARM =====
+-- ===== АВТО ФАРМ =====
 -- ========================================
 
 local function getCurrentCoins()
@@ -1439,13 +1390,13 @@ local function farmLoop()
         local coins = getCurrentCoins()
         if coins >= Settings.AutoFarmCoinLimit then
             if Settings.AutoRespawn then
-                notify("Auto Farm", "Respawning...", 2)
+                notify("Авто фарм", "Респавн...", 2)
                 pcall(function() LocalPlayer.Character.Humanoid.Health = 0 end)
                 task.wait(5)
                 continue
             else
                 Settings.AutoFarmEnabled = false
-                notify("Auto Farm", "Bag full - stopped", 3)
+                notify("Авто фарм", "Сумка полна - остановлено", 3)
                 break
             end
         end
@@ -1467,7 +1418,7 @@ local function setupAutoFarm()
     if Settings.AutoFarmEnabled then
         if not LocalPlayer.Character then return end
         Cache.AutoFarmConn = task.spawn(farmLoop)
-        notify("Auto Farm", "Started", 3)
+        notify("Авто фарм", "Запущен", 3)
     else
         if LocalPlayer.Character then
             local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -1481,7 +1432,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== FLY =====
+-- ===== ПОЛЁТ =====
 -- ========================================
 
 local flyConn = nil
@@ -1601,7 +1552,7 @@ local function startFly()
 end
 
 -- ========================================
--- ===== BUNNY HOP =====
+-- ===== БАНИ ХОП =====
 -- ========================================
 
 local bhopConn = nil
@@ -1678,7 +1629,7 @@ local function startBHop()
 end
 
 -- ========================================
--- ===== SPIN BOT =====
+-- ===== СПИН БОТ =====
 -- ========================================
 
 local SpinBot = {Enabled=false, Speed=9999}
@@ -1695,7 +1646,7 @@ local function setupSpinBot()
 end
 
 -- ========================================
--- ===== ANTI FLING =====
+-- ===== ЗАЩИТА ОТ ФЛИНГА =====
 -- ========================================
 
 local antiFlingConn = nil
@@ -1743,13 +1694,13 @@ local function setupAntiFling()
 end
 
 -- ========================================
--- ===== NOCLIP =====
+-- ===== НОКЛИП =====
 -- ========================================
 
 local noclipConn = nil
 
 -- ========================================
--- ===== MAIN UPDATE LOOP =====
+-- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
 -- ========================================
 
 local mainConn = nil
@@ -1795,7 +1746,7 @@ local function startMainUpdate()
 end
 
 -- ========================================
--- ===== SHERIFF DEAD NOTIF =====
+-- ===== УВЕДОМЛЕНИЕ О СМЕРТИ ШЕРИФА =====
 -- ========================================
 
 local function setupSheriffDeadNotif()
@@ -1803,7 +1754,7 @@ local function setupSheriffDeadNotif()
         if player ~= LocalPlayer then
             player.CharacterRemoving:Connect(function()
                 if checkGun(player) then
-                    notify("Sheriff", player.Name .. " is dead", 3)
+                    notify("Шериф", player.Name .. " мёртв", 3)
                 end
             end)
         end
@@ -1814,7 +1765,7 @@ local function setupSheriffDeadNotif()
             if hum then
                 hum.Died:Connect(function()
                     if checkGun(player) then
-                        notify("Sheriff", player.Name .. " is dead", 3)
+                        notify("Шериф", player.Name .. " мёртв", 3)
                     end
                 end)
             end
@@ -1823,40 +1774,89 @@ local function setupSheriffDeadNotif()
 end
 
 -- ========================================
--- ===== UI =====
+-- ===== ИНТЕРФЕЙС =====
 -- ========================================
 
--- RAGE
-local RageTab = Window:Tab({Title="Rage", Icon="sword"})
-local RageL = RageTab:Section({Title="Movement", Side="Left"})
-local RageR = RageTab:Section({Title="Flight", Side="Right"})
-local RageM = RageTab:Section({Title="Teleports", Side="Left"})
-local RageA = RageTab:Section({Title="Actions", Side="Right"})
+-- ВИЗУАЛ
+local VisualTab = Window:Tab({Title = "Визуал", Icon = "eye"})
+local VisualSection = VisualTab:Section({Title = "ESP", Side = "Left"})
 
-RageR:Toggle({Title="Fly", Default=false, Callback=function(v)
+VisualSection:Toggle({Title = "ESP Убийца", Default = false, Callback = function(v) Settings.MurderESP = v startMainUpdate() end})
+VisualSection:Toggle({Title = "ESP Шериф", Default = false, Callback = function(v) Settings.SheriffESP = v startMainUpdate() end})
+VisualSection:Toggle({Title = "ESP Невинный", Default = false, Callback = function(v) Settings.InnocentESP = v startMainUpdate() end})
+VisualSection:Toggle({Title = "Chams", Default = false, Callback = function(v)
+    Settings.ChamsEnabled = v
+    if v then for _,p in ipairs(Players:GetPlayers()) do cacheCharacterParts(p) end
+    else clearAllChams() end
+    startMainUpdate()
+end})
+VisualSection:Toggle({Title = "Трассеры", Default = false, Callback = function(v)
+    Settings.TracersEnabled = v
+    if v then for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
+    else clearAllTracers() end
+    startMainUpdate()
+end})
+
+-- ЭФФЕКТЫ
+local EffectsTab = Window:Tab({Title = "Эффекты", Icon = "sparkles"})
+local EffectsL = EffectsTab:Section({Title = "Эффекты", Side = "Left"})
+local EffectsR = EffectsTab:Section({Title = "Мир", Side = "Right"})
+
+EffectsL:Toggle({Title = "Круги прыжка", Default = false, Callback = function(v)
+    Settings.JumpCircles = v; startMainUpdate()
+end})
+EffectsL:Toggle({Title = "Фиолетовый след", Default = false, Callback = function(v)
+    Settings.Trails = v
+    if v then createLocalPlayerTrail() else removeLocalPlayerTrail() end
+    startMainUpdate()
+end})
+EffectsL:Toggle({Title = "RGB Персонаж", Default = false, Callback = function(v)
+    Settings.RGBHumanoid = v; setupRGBHumanoid()
+end})
+EffectsL:Toggle({Title = "XRay", Default = false, Callback = function(v)
+    Settings.XRayEnabled = v; setupXRay()
+end})
+EffectsL:Toggle({Title = "Bloom", Default = false, Callback = function(v) Settings.BloomEnabled = v setupBloom(v) end})
+EffectsL:Toggle({Title = "Цветокоррекция", Default = false, Callback = function(v) Settings.ColorCorrectionEnabled = v setupColorCorrection(v) end})
+EffectsL:Toggle({Title = "Виньетка", Default = false, Callback = function(v) Settings.VignetteEnabled = v setupVignette(v) end})
+
+EffectsR:Input({Title = "ID неба", Default = "", Placeholder = "rbxassetid://...", Callback = function(v) Settings.CustomSkyId = v end})
+EffectsR:Button({Title = "Применить небо", Callback = function() setupSky(Settings.CustomSkyId) end})
+EffectsR:Button({Title = "Удалить небо", Callback = function() removeSky() end})
+EffectsR:Button({Title = "Космос", Callback = function() setupSky("97059048850342") end})
+EffectsR:Button({Title = "Тёмное небо", Callback = function() setupSky("100140210065251") end})
+
+-- РЕЙДЖ
+local RageTab = Window:Tab({Title = "Рейдж", Icon = "sword"})
+local RageL = RageTab:Section({Title = "Движение", Side = "Left"})
+local RageR = RageTab:Section({Title = "Полёт", Side = "Right"})
+local RageM = RageTab:Section({Title = "Телепорты", Side = "Left"})
+local RageA = RageTab:Section({Title = "Действия", Side = "Right"})
+
+RageR:Toggle({Title = "Полёт", Default = false, Callback = function(v)
     Settings.FlyEnabled = v
     if v then startFly() else stopFly() end
 end})
-RageR:Input({Title="Fly Speed", Default="60", Placeholder="60", Callback=function(v)
-    local n=tonumber(v); if n then Settings.FlySpeed=n end
+RageR:Input({Title = "Скорость полёта", Default = "60", Placeholder = "60", Callback = function(v)
+    local n = tonumber(v); if n then Settings.FlySpeed = n end
 end})
 
-RageL:Toggle({Title="Bunny Hop", Default=false, Callback=function(v)
+RageL:Toggle({Title = "Бани Хоп", Default = false, Callback = function(v)
     Settings.BHopEnabled = v
     if v then startBHop() else stopBHop() end
 end})
-RageL:Input({Title="BHop Speed", Default="30", Placeholder="30", Callback=function(v)
-    local n=tonumber(v); if n then Settings.BHopSpeed=n end
+RageL:Input({Title = "Скорость BHop", Default = "30", Placeholder = "30", Callback = function(v)
+    local n = tonumber(v); if n then Settings.BHopSpeed = n end
 end})
 
-RageL:Toggle({Title="Spin Bot", Default=false, Callback=function(v)
+RageL:Toggle({Title = "Спин Бот", Default = false, Callback = function(v)
     SpinBot.Enabled = v; setupSpinBot()
 end})
-RageL:Input({Title="Spin Speed", Default="9999", Placeholder="9999", Callback=function(v)
-    local n=tonumber(v); if n then SpinBot.Speed=n end
+RageL:Input({Title = "Скорость спина", Default = "9999", Placeholder = "9999", Callback = function(v)
+    local n = tonumber(v); if n then SpinBot.Speed = n end
 end})
 
-RageL:Toggle({Title="Noclip", Default=false, Callback=function(v)
+RageL:Toggle({Title = "Ноклип", Default = false, Callback = function(v)
     if v then
         if not noclipConn then
             noclipConn = RunService.Stepped:Connect(function()
@@ -1874,161 +1874,111 @@ RageL:Toggle({Title="Noclip", Default=false, Callback=function(v)
     end
 end})
 
-RageM:Button({Title="Teleport to Murder", Callback=function() teleportToRole("Murder") end})
-RageM:Button({Title="Teleport to Sheriff", Callback=function() teleportToRole("Sheriff") end})
+RageM:Button({Title = "Телепорт к убийце", Callback = function() teleportToRole("Murder") end})
+RageM:Button({Title = "Телепорт к шерифу", Callback = function() teleportToRole("Sheriff") end})
 
-RageA:Button({Title="Grab Gun", Callback=function() grabGun() end})
-RageA:Button({Title="Kill All", Callback=function() killAllPlayers() end})
+RageA:Button({Title = "Захват оружия", Callback = function() grabGun() end})
+RageA:Button({Title = "Убить всех", Callback = function() killAllPlayers() end})
 
--- COMBAT
-local CombatTab = Window:Tab({Title="Combat", Icon="crosshair"})
-local CombatL = CombatTab:Section({Title="Combat", Side="Left"})
-local CombatR = CombatTab:Section({Title="Aimbot", Side="Right"})
+-- КОМБАТ
+local CombatTab = Window:Tab({Title = "Комбат", Icon = "crosshair"})
+local CombatL = CombatTab:Section({Title = "Комбат", Side = "Left"})
+local CombatR = CombatTab:Section({Title = "Аимбот", Side = "Right"})
 
-CombatL:Toggle({Title="Shoot Button", Default=false, Callback=function(v) toggleShootButton(v) end})
+CombatL:Toggle({Title = "Кнопка выстрела", Default = false, Callback = function(v) toggleShootButton(v) end})
 
-CombatL:Toggle({Title="Anti Fling", Default=false, Callback=function(v)
+CombatL:Toggle({Title = "Защита от флинга", Default = false, Callback = function(v)
     Settings.AntiFlingEnabled = v; setupAntiFling()
 end})
 
-CombatR:Toggle({Title="FOV Aimbot", Default=false, Callback=function(v)
+CombatR:Toggle({Title = "FOV Аимбот", Default = false, Callback = function(v)
     Settings.FovAimbotEnabled = v
     if v then createFovCircle() end
     setupFovAimbot()
 end})
-CombatR:Input({Title="FOV Radius", Default="120", Placeholder="120", Callback=function(v)
-    local n=tonumber(v)
+CombatR:Input({Title = "Радиус FOV", Default = "120", Placeholder = "120", Callback = function(v)
+    local n = tonumber(v)
     if n then
         Settings.FovRadius = math.clamp(n, 10, 600)
         if Cache.FovCircle then Cache.FovCircle.Radius = Settings.FovRadius end
     end
 end})
 
--- VISUAL
-local VisualTab = Window:Tab({Title="Visual", Icon="eye"})
-local VisualL = VisualTab:Section({Title="ESP", Side="Left"})
+-- МОБИЛЬНЫЕ КНОПКИ
+local MobileTab = Window:Tab({Title = "Мобилка", Icon = "smartphone"})
+local MobileL = MobileTab:Section({Title = "Создать кнопку", Side = "Left"})
+local MobileR = MobileTab:Section({Title = "Управление", Side = "Right"})
 
-VisualL:Toggle({Title="ESP Murder", Default=false, Callback=function(v) Settings.MurderESP=v startMainUpdate() end})
-VisualL:Toggle({Title="ESP Sheriff", Default=false, Callback=function(v) Settings.SheriffESP=v startMainUpdate() end})
-VisualL:Toggle({Title="ESP Innocent", Default=false, Callback=function(v) Settings.InnocentESP=v startMainUpdate() end})
-VisualL:Toggle({Title="Chams", Default=false, Callback=function(v)
-    Settings.ChamsEnabled = v
-    if v then for _,p in ipairs(Players:GetPlayers()) do cacheCharacterParts(p) end
-    else clearAllChams() end
-    startMainUpdate()
-end})
-VisualL:Toggle({Title="Tracers", Default=false, Callback=function(v)
-    Settings.TracersEnabled = v
-    if v then for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
-    else clearAllTracers() end
-    startMainUpdate()
-end})
-
--- EFFECTS
-local EffectsTab = Window:Tab({Title="Effects", Icon="sparkles"})
-local EffectsL = EffectsTab:Section({Title="Effects", Side="Left"})
-local EffectsR = EffectsTab:Section({Title="World", Side="Right"})
-
-EffectsL:Toggle({Title="Jump Circles", Default=false, Callback=function(v)
-    Settings.JumpCircles = v; startMainUpdate()
-end})
-EffectsL:Toggle({Title="Purple Trail", Default=false, Callback=function(v)
-    Settings.Trails = v
-    if v then createLocalPlayerTrail() else removeLocalPlayerTrail() end
-    startMainUpdate()
-end})
-EffectsL:Toggle({Title="RGB Humanoid", Default=false, Callback=function(v)
-    Settings.RGBHumanoid = v; setupRGBHumanoid()
-end})
-EffectsL:Toggle({Title="XRay", Default=false, Callback=function(v)
-    Settings.XRayEnabled = v; setupXRay()
-end})
-EffectsL:Toggle({Title="Bloom", Default=false, Callback=function(v) Settings.BloomEnabled=v setupBloom(v) end})
-EffectsL:Toggle({Title="Color Correction", Default=false, Callback=function(v) Settings.ColorCorrectionEnabled=v setupColorCorrection(v) end})
-EffectsL:Toggle({Title="Vignette", Default=false, Callback=function(v) Settings.VignetteEnabled=v setupVignette(v) end})
-
-EffectsR:Input({Title="Sky ID", Default="", Placeholder="rbxassetid://...", Callback=function(v) Settings.CustomSkyId=v end})
-EffectsR:Button({Title="Apply Custom Sky", Callback=function() setupSky(Settings.CustomSkyId) end})
-EffectsR:Button({Title="Remove Sky", Callback=function() removeSky() end})
-EffectsR:Button({Title="Cosmos", Callback=function() setupSky("97059048850342") end})
-EffectsR:Button({Title="Dark Sky", Callback=function() setupSky("100140210065251") end})
-
--- FOR MOBILE
-local MobileTab = Window:Tab({Title="Mobile", Icon="smartphone"})
-local MobileL = MobileTab:Section({Title="Create Button", Side="Left"})
-local MobileR = MobileTab:Section({Title="Manage", Side="Right"})
-
-local function addMobileButtonUI(functionName, label)
-    createMobileButton(functionName, label)
-    notify("Mobile", label .. " button created", 2)
+local function addMobileButtonUI(label, action)
+    createMobileButton(label, action)
+    notify("Мобилка", label .. " создана", 2)
 end
 
 local function removeMobileButtonUI(label)
     removeMobileButton(label)
-    notify("Mobile", label .. " button removed", 2)
 end
 
-MobileL:Button({Title="Fly", Callback=function() addMobileButtonUI("Fly", "Fly") end})
-MobileL:Button({Title="Spin", Callback=function() addMobileButtonUI("Spin", "Spin") end})
-MobileL:Button({Title="Noclip", Callback=function() addMobileButtonUI("Noclip", "Noclip") end})
-MobileL:Button({Title="Aimbot", Callback=function() addMobileButtonUI("Aimbot", "Aimbot") end})
-MobileL:Button({Title="ESP", Callback=function() addMobileButtonUI("ESP", "ESP") end})
+MobileL:Button({Title = "Полёт", Callback = function() addMobileButtonUI("Полёт", "Fly") end})
+MobileL:Button({Title = "Спин", Callback = function() addMobileButtonUI("Спин", "Spin") end})
+MobileL:Button({Title = "Ноклип", Callback = function() addMobileButtonUI("Ноклип", "Noclip") end})
+MobileL:Button({Title = "Аимбот", Callback = function() addMobileButtonUI("Аимбот", "Aimbot") end})
+MobileL:Button({Title = "ESP", Callback = function() addMobileButtonUI("ESP", "ESP") end})
 
-MobileR:Button({Title="Remove Fly", Callback=function() removeMobileButtonUI("Fly") end})
-MobileR:Button({Title="Remove Spin", Callback=function() removeMobileButtonUI("Spin") end})
-MobileR:Button({Title="Remove Noclip", Callback=function() removeMobileButtonUI("Noclip") end})
-MobileR:Button({Title="Remove Aimbot", Callback=function() removeMobileButtonUI("Aimbot") end})
-MobileR:Button({Title="Remove ESP", Callback=function() removeMobileButtonUI("ESP") end})
-MobileR:Button({Title="Remove All", Callback=function()
+MobileR:Button({Title = "Удалить Полёт", Callback = function() removeMobileButtonUI("Полёт") end})
+MobileR:Button({Title = "Удалить Спин", Callback = function() removeMobileButtonUI("Спин") end})
+MobileR:Button({Title = "Удалить Ноклип", Callback = function() removeMobileButtonUI("Ноклип") end})
+MobileR:Button({Title = "Удалить Аимбот", Callback = function() removeMobileButtonUI("Аимбот") end})
+MobileR:Button({Title = "Удалить ESP", Callback = function() removeMobileButtonUI("ESP") end})
+MobileR:Button({Title = "Удалить все", Callback = function()
     for label, _ in pairs(MobileButtons) do
         removeMobileButton(label)
     end
-    notify("Mobile", "All buttons removed", 2)
+    notify("Мобилка", "Все кнопки удалены", 2)
 end})
 
--- AUTO FARM
-local FarmTab = Window:Tab({Title="Farm", Icon="star"})
-local FarmL = FarmTab:Section({Title="Farm", Side="Left"})
-local FarmR = FarmTab:Section({Title="Config", Side="Right"})
+-- АВТО ФАРМ
+local FarmTab = Window:Tab({Title = "Авто фарм", Icon = "star"})
+local FarmL = FarmTab:Section({Title = "Фарм", Side = "Left"})
+local FarmR = FarmTab:Section({Title = "Настройки", Side = "Right"})
 
-FarmL:Toggle({Title="Auto Farm", Default=false, Callback=function(v) Settings.AutoFarmEnabled=v setupAutoFarm() end})
-FarmL:Toggle({Title="Auto Respawn", Default=false, Callback=function(v) Settings.AutoRespawn=v end})
-FarmR:Input({Title="Farm Speed", Default="20", Placeholder="20", Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmSpeed=n end end})
-FarmR:Input({Title="Coin Limit", Default="40", Placeholder="40", Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmCoinLimit=n end end})
-FarmR:Input({Title="Coin Delay", Default="0.15", Placeholder="0.15", Callback=function(v) local n=tonumber(v) if n then Settings.AutoFarmCoinDelay=n end end})
+FarmL:Toggle({Title = "Авто фарм", Default = false, Callback = function(v) Settings.AutoFarmEnabled = v setupAutoFarm() end})
+FarmL:Toggle({Title = "Авто респавн", Default = false, Callback = function(v) Settings.AutoRespawn = v end})
+FarmR:Input({Title = "Скорость фарма", Default = "20", Placeholder = "20", Callback = function(v) local n = tonumber(v) if n then Settings.AutoFarmSpeed = n end end})
+FarmR:Input({Title = "Лимит монет", Default = "40", Placeholder = "40", Callback = function(v) local n = tonumber(v) if n then Settings.AutoFarmCoinLimit = n end end})
+FarmR:Input({Title = "Задержка монет", Default = "0.15", Placeholder = "0.15", Callback = function(v) local n = tonumber(v) if n then Settings.AutoFarmCoinDelay = n end end})
 
--- MISC
-local MiscTab = Window:Tab({Title="Misc", Icon="timer"})
-local MiscL = MiscTab:Section({Title="Misc", Side="Left"})
+-- РАЗНОЕ
+local MiscTab = Window:Tab({Title = "Разное", Icon = "timer"})
+local MiscL = MiscTab:Section({Title = "Разное", Side = "Left"})
 
-MiscL:Toggle({Title="Anti-AFK", Default=false, Callback=function(v)
+MiscL:Toggle({Title = "Защита от АФК", Default = false, Callback = function(v)
     Settings.AntiAFKEnabled = v; setupAntiAFK()
 end})
-MiscL:Button({Title="Rejoin", Callback=function()
+MiscL:Button({Title = "Рейджоин", Callback = function()
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end})
 
 -- ========================================
--- ===== PLAYER EVENTS =====
+-- ===== СОБЫТИЯ ИГРОКОВ =====
 -- ========================================
 
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
         if Settings.ChamsEnabled then cacheCharacterParts(player) applyChams(player) end
-        if Settings.TracersEnabled and player~=LocalPlayer then createTracer(player) end
+        if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
         if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
-            local r=getRole(player)
-            if Settings.MurderESP and r=="Murder" then createOrUpdateHighlight(player,COLORS.Murder)
-            elseif Settings.SheriffESP and r=="Sheriff" then createOrUpdateHighlight(player,COLORS.Sheriff)
-            elseif Settings.InnocentESP and r=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent) end
+            local r = getRole(player)
+            if Settings.MurderESP and r == "Murder" then createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and r == "Sheriff" then createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and r == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
         end
-        if Settings.AntiFlingEnabled and player~=LocalPlayer then
+        if Settings.AntiFlingEnabled and player ~= LocalPlayer then
             task.spawn(function()
                 task.wait(0.5)
                 if player.Character then
                     for _, part in ipairs(player.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then part.CanCollide=false end
+                        if part:IsA("BasePart") then part.CanCollide = false end
                     end
                 end
             end)
@@ -2052,17 +2002,17 @@ LocalPlayer.CharacterAdded:Connect(function()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if Settings.ChamsEnabled then cacheCharacterParts(player) applyChams(player) end
-        if Settings.TracersEnabled and player~=LocalPlayer then createTracer(player) end
+        if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
         if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
-            local r=getRole(player)
-            if Settings.MurderESP and r=="Murder" then createOrUpdateHighlight(player,COLORS.Murder)
-            elseif Settings.SheriffESP and r=="Sheriff" then createOrUpdateHighlight(player,COLORS.Sheriff)
-            elseif Settings.InnocentESP and r=="Innocent" then createOrUpdateHighlight(player,COLORS.Innocent) end
+            local r = getRole(player)
+            if Settings.MurderESP and r == "Murder" then createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and r == "Sheriff" then createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and r == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
         end
     end
 
     setupRGBHumanoid()
-    Cache.JumpTracking = {wasJumping=false}
+    Cache.JumpTracking = {wasJumping = false}
 
     if Settings.Trails then
         task.wait(0.1)
@@ -2092,11 +2042,11 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 -- ========================================
--- ===== INIT =====
+-- ===== ЗАПУСК =====
 -- ========================================
 
 startMainUpdate()
 setupSheriffDeadNotif()
 createFovCircle()
 
-notify("PlanetHub", "Loaded - Violet Theme", 4)
+notify("PlanetHub", "Загружен - Violet тема", 4)
