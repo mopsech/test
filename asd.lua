@@ -47,7 +47,7 @@ local Window = WindUI:CreateWindow({
     Size = UDim2.fromOffset(720, 600),
     Resizable = true,
     Transparent = true,
-    Theme = "Dark",
+    Theme = "Violet",
     SideBarWidth = 190,
     HideSearchBar = false
 })
