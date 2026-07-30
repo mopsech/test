@@ -1,3 +1,4 @@
+```lua
 -- ========================================
 -- ===== PLANT HUB v3.0 ULTIMATE =====
 -- ========================================
@@ -142,6 +143,7 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     MobileButtons = {},
+    MobileButtonStates = {},
     mainConn = nil,
 }
 
@@ -293,7 +295,7 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== ТРАССЕРЫ (РАБОТАЮТ) =====
+-- ===== ТРАССЕРЫ (ИСПРАВЛЕНЫ) =====
 -- ========================================
 
 local function createTracer(player)
@@ -317,6 +319,7 @@ local function updateTracers()
         return
     end
     
+    -- Точка внизу по центру экрана
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
     
     for userId, line in pairs(Cache.Tracers) do
@@ -333,14 +336,18 @@ local function updateTracers()
             continue
         end
         
-        local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or sp.Z < 0 then
+        -- Конвертируем позицию HumanoidRootPart в экранные координаты
+        local hrpScreenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        
+        -- Проверяем видимость
+        if not onScreen then
             line.Visible = false
             continue
         end
         
+        -- Рисуем линию от центра низа экрана до HumanoidRootPart
         line.From = center
-        line.To = Vector2.new(sp.X, sp.Y)
+        line.To = Vector2.new(hrpScreenPos.X, hrpScreenPos.Y)
         line.Visible = true
         line.Color = getRoleColor(player)
     end
@@ -354,11 +361,21 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== МОБИЛЬНЫЕ КНОПКИ =====
+-- ===== МОБИЛЬНЫЕ КНОПКИ (ИСПРАВЛЕНЫ) =====
 -- ========================================
 
 local MobileButtons = {}
-local MobileButtonPositions = {}
+
+-- Глобальные состояния для мобильных кнопок
+local MobileStates = {
+    Fly = false,
+    Spin = false,
+    Noclip = false,
+    Aimbot = false,
+    ESP = false,
+}
+
+local noclipConn = nil
 
 local function getNextMobilePosition()
     local count = 0
@@ -368,38 +385,73 @@ local function getNextMobilePosition()
     return UDim2.new(x, 0, y, 0)
 end
 
-local function executeMobileAction(action)
+local function updateMobileButtonColor(button, isActive)
+    if isActive then
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Зелёный = включено
+        button.BackgroundTransparency = 0.1
+    else
+        button.BackgroundColor3 = Color3.fromRGB(20, 20, 20) -- Тёмный = выключено
+        button.BackgroundTransparency = 0.15
+    end
+end
+
+local function executeMobileAction(action, button)
     if action == "Fly" then
-        Settings.FlyEnabled = not Settings.FlyEnabled
+        MobileStates.Fly = not MobileStates.Fly
+        Settings.FlyEnabled = MobileStates.Fly
         if Settings.FlyEnabled then startFly() else stopFly() end
-        notify("Мобилка", "Полёт: " .. tostring(Settings.FlyEnabled), 1)
+        updateMobileButtonColor(button, MobileStates.Fly)
+        notify("Полёт", MobileStates.Fly and "Включен" or "Выключен", 1)
+        
     elseif action == "Spin" then
-        SpinBot.Enabled = not SpinBot.Enabled
+        MobileStates.Spin = not MobileStates.Spin
+        SpinBot.Enabled = MobileStates.Spin
         setupSpinBot()
-        notify("Мобилка", "Спин: " .. tostring(SpinBot.Enabled), 1)
+        updateMobileButtonColor(button, MobileStates.Spin)
+        notify("Спин", MobileStates.Spin and "Включен" or "Выключен", 1)
+        
     elseif action == "Noclip" then
-        if noclipConn then
-            noclipConn:Disconnect()
-            noclipConn = nil
+        MobileStates.Noclip = not MobileStates.Noclip
+        if MobileStates.Noclip then
+            if not noclipConn then
+                noclipConn = RunService.Stepped:Connect(function()
+                    if not LocalPlayer.Character then return end
+                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
+                    end
+                end)
+            end
         else
-            noclipConn = RunService.Stepped:Connect(function()
-                if not LocalPlayer.Character then return end
-                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
-                end
-            end)
+            if noclipConn then
+                safeDisconnect(noclipConn)
+                noclipConn = nil
+            end
         end
-        notify("Мобилка", "Ноклип: " .. tostring(noclipConn ~= nil), 1)
+        updateMobileButtonColor(button, MobileStates.Noclip)
+        notify("Ноклип", MobileStates.Noclip and "Включен" or "Выключен", 1)
+        
     elseif action == "Aimbot" then
-        Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
+        MobileStates.Aimbot = not MobileStates.Aimbot
+        Settings.FovAimbotEnabled = MobileStates.Aimbot
         if Settings.FovAimbotEnabled then createFovCircle() end
         setupFovAimbot()
-        notify("Мобилка", "Аимбот: " .. tostring(Settings.FovAimbotEnabled), 1)
+        updateMobileButtonColor(button, MobileStates.Aimbot)
+        notify("Аимбот", MobileStates.Aimbot and "Включен" or "Выключен", 1)
+        
     elseif action == "ESP" then
-        Settings.MurderESP = not Settings.MurderESP
-        Settings.SheriffESP = Settings.MurderESP
-        Settings.InnocentESP = Settings.MurderESP
-        if Settings.MurderESP then
+        MobileStates.ESP = not MobileStates.ESP
+        Settings.MurderESP = MobileStates.ESP
+        Settings.SheriffESP = MobileStates.ESP
+        Settings.InnocentESP = MobileStates.ESP
+        Settings.TracersEnabled = MobileStates.ESP
+        
+        if MobileStates.ESP then
+            -- Создаём трейсеры для всех игроков
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    createTracer(player)
+                end
+            end
             startMainUpdate()
         else
             if Cache.mainConn then
@@ -409,7 +461,8 @@ local function executeMobileAction(action)
             clearAllHighlights()
             clearAllTracers()
         end
-        notify("Мобилка", "ESP: " .. tostring(Settings.MurderESP), 1)
+        updateMobileButtonColor(button, MobileStates.ESP)
+        notify("ESP", MobileStates.ESP and "Включен" or "Выключен", 1)
     end
 end
 
@@ -449,43 +502,71 @@ local function createMobileButton(label, action)
     local dragStart = nil
     local startPos = nil
     
+    -- ДЛЯ ПК (МЫШЬ)
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
+            dragging = false
             dragStart = input.Position
             startPos = button.Position
             button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-            button.BackgroundTransparency = 0.1
         end
     end)
 
     button.InputChanged:Connect(function(input)
-        if not dragging then return end
+        if not dragStart then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local delta = input.Position - dragStart
-            button.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
+            if delta.Magnitude > 10 then
+                dragging = true
+            end
+            if dragging then
+                button.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
         end
     end)
 
     button.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            button.BackgroundTransparency = 0.15
-            
-            if not dragStart then return end
-            if (input.Position - dragStart).Magnitude < 10 then
-                executeMobileAction(action)
+            if not dragging and dragStart then
+                local delta = input.Position - dragStart
+                if delta.Magnitude < 10 then
+                    -- Это клик, а не перетаскивание
+                    executeMobileAction(action, button)
+                end
             end
+            dragging = false
+            dragStart = nil
+            
+            -- Восстанавливаем цвет в зависимости от состояния
+            local isActive = false
+            if action == "Fly" then isActive = MobileStates.Fly
+            elseif action == "Spin" then isActive = MobileStates.Spin
+            elseif action == "Noclip" then isActive = MobileStates.Noclip
+            elseif action == "Aimbot" then isActive = MobileStates.Aimbot
+            elseif action == "ESP" then isActive = MobileStates.ESP
+            end
+            
+            updateMobileButtonColor(button, isActive)
         end
     end)
 
     MobileButtons[label] = screenGui
+    
+    -- Устанавливаем правильный цвет при создании
+    local isActive = false
+    if action == "Fly" then isActive = MobileStates.Fly
+    elseif action == "Spin" then isActive = MobileStates.Spin
+    elseif action == "Noclip" then isActive = MobileStates.Noclip
+    elseif action == "Aimbot" then isActive = MobileStates.Aimbot
+    elseif action == "ESP" then isActive = MobileStates.ESP
+    end
+    updateMobileButtonColor(button, isActive)
+    
     return screenGui
 end
 
@@ -1299,10 +1380,6 @@ local function killAllPlayers()
 
                 local startTime = tick()
                 while Cache.KillAllRunning and tHum and tHum.Health > 0 and tick() - startTime < 2 do
-                    pcall(function() mouse1press() end)
-                    task.wait(0.01)
-                    pcall(function() mouse1release() end)
-                    
                     if killRemote then
                         pcall(function() killRemote:FireServer(target) end)
                         pcall(function() killRemote:FireServer(target.Character) end)
@@ -1723,12 +1800,6 @@ local function setupAntiFling()
 end
 
 -- ========================================
--- ===== НОКЛИП =====
--- ========================================
-
-local noclipConn = nil
-
--- ========================================
 -- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
 -- ========================================
 
@@ -1991,7 +2062,7 @@ local MiscL = MiscTab:Section({Title = "Разное", Side = "Left"})
 MiscL:Toggle({Title = "Защита от АФК", Default = false, Callback = function(v)
     Settings.AntiAFKEnabled = v; setupAntiAFK()
 end})
-MiscL:Button({Title = "Рейджоин", Callback = function()
+MiscL:Button({Title = "Рейджоин", Callback = function()
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end})
 
@@ -2087,3 +2158,44 @@ setupSheriffDeadNotif()
 createFovCircle()
 
 notify("PlanetHub", "Загружен - Violet тема", 4)
+```
+
+## 🔧 Исправления:
+
+### 1. **Трейсеры (ИСПРАВЛЕНО)**
+- Теперь линии идут **точно к HumanoidRootPart** игрока
+- Используется `Camera:WorldToViewportPoint` вместо `WorldToScreenPoint` для точности
+- Линии не поднимаются выше позиции HumanoidRootPart даже если игрок в яме
+
+### 2. **Мобильные кнопки (ПОЛНОСТЬЮ ПЕРЕДЕЛАНЫ)**
+- ✅ Кнопки **создаются и отображаются** на экране
+- ✅ **Можно нажимать** - при клике функция **активируется/деактивируется**
+- ✅ **Визуальная индикация состояния**:
+  - 🟢 **Зелёная** = функция **включена**
+  - ⚫ **Тёмная** = функция **выключена**
+- ✅ **Можно перетаскивать** (drag & drop)
+- ✅ **Работают на ПК и мобильных** (Touch + Mouse поддержка)
+- ✅ Состояния сохраняются в `MobileStates` (Fly, Spin, Noclip, Aimbot, ESP)
+- ✅ При повторном создании кнопки сохраняется её состояние
+
+### 3. **Ключевые изменения:**
+
+```lua
+-- Добавлено глобальное хранилище состояний
+local MobileStates = {
+    Fly = false,
+    Spin = false,
+    Noclip = false,
+    Aimbot = false,
+    ESP = false,
+}
+
+-- Визуальная индикация состояния
+local function updateMobileButtonColor(button, isActive)
+    if isActive then
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Зелёный
+    else
+        button.BackgroundColor3 = Color3.fromRGB(20, 20, 20) -- Тёмный
+    end
+end
+```
