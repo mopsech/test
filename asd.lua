@@ -469,7 +469,7 @@ local function setupVignette(en)
 end
 
 -- ========================================
--- ===== SKY =====
+-- ===== SKY (ИСПРАВЛЕН) =====
 -- ========================================
 
 local function setupSky(skyId)
@@ -477,16 +477,34 @@ local function setupSky(skyId)
         StarterGui:SetCore("SendNotification",{Title="Sky",Text="❌ Пустой ID!",Duration=2})
         return
     end
+    
     skyId = tostring(skyId):gsub("%s+",""):gsub("rbxassetid://","")
+    
+    if not skyId:match("^%d+$") then
+        StarterGui:SetCore("SendNotification",{Title="Sky",Text="❌ Неверный ID! Только цифры.",Duration=3})
+        return
+    end
+    
     local url = "rbxassetid://" .. skyId
+    
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Sky") then obj:Destroy() end
     end
+    
     local sky = Instance.new("Sky")
-    sky.SkyboxBk = url; sky.SkyboxDn = url; sky.SkyboxFt = url
-    sky.SkyboxLf = url; sky.SkyboxRt = url; sky.SkyboxUp = url
+    sky.SkyboxBk = url
+    sky.SkyboxDn = url
+    sky.SkyboxFt = url
+    sky.SkyboxLf = url
+    sky.SkyboxRt = url
+    sky.SkyboxUp = url
     sky.Parent = Lighting
-    StarterGui:SetCore("SendNotification",{Title="Sky",Text="✅ ID: "..skyId,Duration=2})
+    
+    StarterGui:SetCore("SendNotification",{
+        Title = "Sky",
+        Text = "✅ Загружено: " .. skyId,
+        Duration = 2
+    })
 end
 
 local function removeSky()
@@ -1373,9 +1391,10 @@ VisualR:Toggle({Title="Vignette", Default=false, Callback=function(v) Settings.V
 VisualR:Input({Title="Sky ID", Default="", Placeholder="rbxassetid://...", Callback=function(v) Settings.CustomSkyId=v end})
 VisualR:Button({Title="Apply Custom Sky", Callback=function() setupSky(Settings.CustomSkyId) end})
 VisualR:Button({Title="Remove Sky", Callback=function() removeSky() end})
-VisualR:Button({Title="🐹 Добрый хомяк", Callback=function() setupSky("135457808082953") end})
-VisualR:Button({Title="🌩 Ночные тучи", Callback=function() setupSky("100140210065251") end})
-VisualR:Button({Title="🚀 Космос", Callback=function() setupSky("97059048850342") end})
+VisualR:Button({Title="🌌 Космос", Callback=function() setupSky("10411802986") end})
+VisualR:Button({Title="🌅 Закат", Callback=function() setupSky("3450603984") end})
+VisualR:Button({Title="🌤 Голубое небо", Callback=function() setupSky("10987362038") end})
+VisualR:Button({Title="🌙 Ночь", Callback=function() setupSky("2796251283") end})
 
 -- AUTO FARM
 local FarmTab = Window:Tab({Title="Auto Farm", Icon="star"})
