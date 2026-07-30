@@ -142,7 +142,7 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     MobileButtons = {},
-    MobileButtonPositions = {},
+    mainConn = nil,
 }
 
 local COLORS = {
@@ -205,15 +205,15 @@ local function checkGun(player)
 end
 
 local function getRole(player)
-    if checkKnife(player) then return "Murder" end
-    if checkGun(player) then return "Sheriff" end
-    return "Innocent"
+    if checkKnife(player) then return "Убийца" end
+    if checkGun(player) then return "Шериф" end
+    return "Невинный"
 end
 
 local function getRoleColor(player)
     local r = getRole(player)
-    if r == "Murder" then return COLORS.Murder end
-    if r == "Sheriff" then return COLORS.Sheriff end
+    if r == "Убийца" then return COLORS.Murder end
+    if r == "Шериф" then return COLORS.Sheriff end
     return COLORS.Innocent
 end
 
@@ -290,6 +290,76 @@ local function isPlayerVisible(player)
     raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
     local result = Workspace:Raycast(myHRP.Position, hrp.Position - myHRP.Position, raycastParams)
     return not result
+end
+
+-- ========================================
+-- ===== ТРАССЕРЫ (ПЕРЕДЕЛАНЫ) =====
+-- ========================================
+
+local function createTracer(player)
+    if not player or player == LocalPlayer then return end
+    if Cache.Tracers[player.UserId] then return end
+    
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "Tracer"
+    billboard.Size = UDim2.new(0, 6, 0, 6)
+    billboard.AlwaysOnTop = true
+    billboard.StudsOffset = Vector3.new(0, 0, 0)
+    billboard.Adornee = hrp
+    billboard.Parent = hrp
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = getRoleColor(player)
+    frame.BackgroundTransparency = 0
+    frame.BorderSizePixel = 0
+    frame.Parent = billboard
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = frame
+    
+    Cache.Tracers[player.UserId] = billboard
+end
+
+local function updateTracers()
+    for userId, billboard in pairs(Cache.Tracers) do
+        local player = Players:GetPlayerByUserId(userId)
+        if not player or not player.Character or not Settings.TracersEnabled then
+            if billboard then pcall(function() billboard:Destroy() end) end
+            Cache.Tracers[userId] = nil
+            continue
+        end
+        
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            if billboard then pcall(function() billboard:Destroy() end) end
+            Cache.Tracers[userId] = nil
+            continue
+        end
+        
+        if billboard and billboard.Parent ~= hrp then
+            billboard.Adornee = hrp
+            billboard.Parent = hrp
+        end
+        
+        if billboard then
+            local frame = billboard:FindFirstChildOfClass("Frame")
+            if frame then
+                frame.BackgroundColor3 = getRoleColor(player)
+            end
+        end
+    end
+end
+
+local function clearAllTracers()
+    for userId, billboard in pairs(Cache.Tracers) do
+        if billboard then pcall(function() billboard:Destroy() end) end
+    end
+    Cache.Tracers = {}
 end
 
 -- ========================================
@@ -547,12 +617,12 @@ end
 -- ========================================
 
 local MobileButtons = {}
-local MobileButtonPositions = {}
 
 local function getNextMobilePosition()
-    local count = #MobileButtons
-    local x = 0.1 + (count % 3) * 0.15
-    local y = 0.2 + math.floor(count / 3) * 0.1
+    local count = 0
+    for _ in pairs(MobileButtons) do count = count + 1 end
+    local x = 0.05 + (count % 4) * 0.13
+    local y = 0.1 + math.floor(count / 4) * 0.1
     return UDim2.new(x, 0, y, 0)
 end
 
@@ -587,7 +657,16 @@ local function executeMobileAction(action)
         Settings.MurderESP = not Settings.MurderESP
         Settings.SheriffESP = Settings.MurderESP
         Settings.InnocentESP = Settings.MurderESP
-        startMainUpdate()
+        if Settings.MurderESP then
+            startMainUpdate()
+        else
+            if Cache.mainConn then
+                safeDisconnect(Cache.mainConn)
+                Cache.mainConn = nil
+            end
+            clearAllHighlights()
+            clearAllTracers()
+        end
         notify("Мобилка", "ESP: " .. tostring(Settings.MurderESP), 1)
     end
 end
@@ -799,49 +878,22 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== TRACERS =====
+-- ===== ТРАССЕРЫ (ОБНОВЛЕНИЕ) =====
 -- ========================================
 
-local function createTracer(player)
-    if not player or player == LocalPlayer then return end
-    if Cache.Tracers[player.UserId] then return end
-    local line = Drawing.new("Line")
-    line.Thickness = 2
-    line.Transparency = 0.8
-    line.Visible = false
-    line.Color = getRoleColor(player)
-    Cache.Tracers[player.UserId] = line
-end
-
-local function updateTracers()
-    for userId, line in pairs(Cache.Tracers) do
-        local player = Players:GetPlayerByUserId(userId)
-        if not player or not player.Character or not Settings.TracersEnabled then
-            line.Visible = false
-            continue
-        end
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            line.Visible = false
-            continue
-        end
-        local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-        if not onScreen or sp.Z < 0 then
-            line.Visible = false
-            continue
-        end
-        line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        line.To = Vector2.new(sp.X, sp.Y)
-        line.Visible = true
-        line.Color = getRoleColor(player)
+local function updateTracersLoop()
+    if not Settings.TracersEnabled then
+        clearAllTracers()
+        return
     end
-end
-
-local function clearAllTracers()
-    for _, line in pairs(Cache.Tracers) do
-        pcall(function() line:Remove() end)
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if not Cache.Tracers[player.UserId] then
+                createTracer(player)
+            end
+        end
     end
-    Cache.Tracers = {}
 end
 
 -- ========================================
@@ -1172,7 +1224,7 @@ local function teleportToRole(role)
     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            local hasRole = (role == "Murder" and checkKnife(player)) or (role == "Sheriff" and checkGun(player))
+            local hasRole = (role == "Убийца" and checkKnife(player)) or (role == "Шериф" and checkGun(player))
             if hasRole then
                 local dist = (myHRP.Position - player.Character.HumanoidRootPart.Position).Magnitude
                 if dist < targetDist then
@@ -1703,8 +1755,6 @@ local noclipConn = nil
 -- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
 -- ========================================
 
-local mainConn = nil
-
 local function updateVisuals()
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then
@@ -1714,34 +1764,38 @@ local function updateVisuals()
         end
         if not player.Character then continue end
         local role = getRole(player)
-        if Settings.MurderESP and role == "Murder" then
+        if Settings.MurderESP and role == "Убийца" then
             createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP and role == "Sheriff" then
+        elseif Settings.SheriffESP and role == "Шериф" then
             createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Innocent" then
+        elseif Settings.InnocentESP and role == "Невинный" then
             createOrUpdateHighlight(player, COLORS.Innocent)
         else
             removeHighlight(player)
         end
         if Settings.ChamsEnabled then applyChams(player)
         elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
-        if Settings.TracersEnabled and not Cache.Tracers[player.UserId] then createTracer(player) end
-    end
-    if Settings.TracersEnabled then updateTracers() else clearAllTracers() end
-    if Settings.Trails then
-        if LocalPlayer.Character then createLocalPlayerTrail() end
-    else
-        removeLocalPlayerTrail()
     end
 end
 
 local function startMainUpdate()
-    safeDisconnect(mainConn)
-    mainConn = RunService.Heartbeat:Connect(function()
+    if Cache.mainConn then
+        safeDisconnect(Cache.mainConn)
+        Cache.mainConn = nil
+    end
+    
+    Cache.mainConn = RunService.Heartbeat:Connect(function()
         local any = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP
             or Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
-        if any then updateVisuals() end
-        if Settings.JumpCircles then updateJumpCircles() end
+        
+        if any then
+            updateVisuals()
+            updateTracersLoop()
+        end
+        
+        if Settings.JumpCircles then
+            updateJumpCircles()
+        end
     end)
 end
 
@@ -1792,9 +1846,12 @@ VisualSection:Toggle({Title = "Chams", Default = false, Callback = function(v)
 end})
 VisualSection:Toggle({Title = "Трассеры", Default = false, Callback = function(v)
     Settings.TracersEnabled = v
-    if v then for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
-    else clearAllTracers() end
-    startMainUpdate()
+    if v then
+        for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
+        startMainUpdate()
+    else
+        clearAllTracers()
+    end
 end})
 
 -- ЭФФЕКТЫ
@@ -1874,8 +1931,8 @@ RageL:Toggle({Title = "Ноклип", Default = false, Callback = function(v)
     end
 end})
 
-RageM:Button({Title = "Телепорт к убийце", Callback = function() teleportToRole("Murder") end})
-RageM:Button({Title = "Телепорт к шерифу", Callback = function() teleportToRole("Sheriff") end})
+RageM:Button({Title = "Телепорт к убийце", Callback = function() teleportToRole("Убийца") end})
+RageM:Button({Title = "Телепорт к шерифу", Callback = function() teleportToRole("Шериф") end})
 
 RageA:Button({Title = "Захват оружия", Callback = function() grabGun() end})
 RageA:Button({Title = "Убить всех", Callback = function() killAllPlayers() end})
@@ -1969,9 +2026,9 @@ Players.PlayerAdded:Connect(function(player)
         if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
         if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
             local r = getRole(player)
-            if Settings.MurderESP and r == "Murder" then createOrUpdateHighlight(player, COLORS.Murder)
-            elseif Settings.SheriffESP and r == "Sheriff" then createOrUpdateHighlight(player, COLORS.Sheriff)
-            elseif Settings.InnocentESP and r == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
+            if Settings.MurderESP and r == "Убийца" then createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and r == "Шериф" then createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and r == "Невинный" then createOrUpdateHighlight(player, COLORS.Innocent) end
         end
         if Settings.AntiFlingEnabled and player ~= LocalPlayer then
             task.spawn(function()
@@ -1990,7 +2047,7 @@ Players.PlayerRemoving:Connect(function(player)
     Cache.ChamsPartsList[player.UserId] = nil
     Cache.Highlights[player.UserId] = nil
     if Cache.Tracers[player.UserId] then
-        pcall(function() Cache.Tracers[player.UserId]:Remove() end)
+        pcall(function() Cache.Tracers[player.UserId]:Destroy() end)
         Cache.Tracers[player.UserId] = nil
     end
 end)
@@ -2005,9 +2062,9 @@ LocalPlayer.CharacterAdded:Connect(function()
         if Settings.TracersEnabled and player ~= LocalPlayer then createTracer(player) end
         if Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP then
             local r = getRole(player)
-            if Settings.MurderESP and r == "Murder" then createOrUpdateHighlight(player, COLORS.Murder)
-            elseif Settings.SheriffESP and r == "Sheriff" then createOrUpdateHighlight(player, COLORS.Sheriff)
-            elseif Settings.InnocentESP and r == "Innocent" then createOrUpdateHighlight(player, COLORS.Innocent) end
+            if Settings.MurderESP and r == "Убийца" then createOrUpdateHighlight(player, COLORS.Murder)
+            elseif Settings.SheriffESP and r == "Шериф" then createOrUpdateHighlight(player, COLORS.Sheriff)
+            elseif Settings.InnocentESP and r == "Невинный" then createOrUpdateHighlight(player, COLORS.Innocent) end
         end
     end
 
