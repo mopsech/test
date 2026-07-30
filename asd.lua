@@ -67,6 +67,7 @@ local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -103,7 +104,7 @@ local Settings = {
     AutoFarmCoinDelay = 0.15,
     AutoRespawn = false,
     AntiAFKEnabled = false,
-    AutoShootMurder = false,
+    ShootButtonEnabled = false,
 }
 
 -- ========================================
@@ -124,14 +125,16 @@ local Cache = {
     FovCircle = nil,
     FovConnection = nil,
     KillAllRunning = false,
-    AutoShootConnection = nil,
     FlyBlockPart = nil,
+    ShootButton = nil,
+    ShootDragging = false,
+    MobileButtons = {},
 }
 
 local COLORS = {
     Murder = Color3.fromRGB(255, 0, 0),
     Sheriff = Color3.fromRGB(0, 100, 255),
-    Innocent = Color3.fromRGB(138, 43, 226), -- ФИОЛЕТОВЫЙ
+    Innocent = Color3.fromRGB(138, 43, 226),
     Purple = Color3.fromRGB(138, 43, 226),
     White = Color3.fromRGB(255, 255, 255),
     Red = Color3.fromRGB(255, 50, 50),
@@ -197,7 +200,7 @@ local function getRoleColor(player)
     local r = getRole(player)
     if r == "Murder" then return COLORS.Murder end
     if r == "Sheriff" then return COLORS.Sheriff end
-    return COLORS.Innocent -- ФИОЛЕТОВЫЙ
+    return COLORS.Innocent
 end
 
 local function getLocalKnife()
@@ -225,7 +228,7 @@ local function getLocalGun()
     for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
         if item:IsA("Tool") then
             local n = item.Name:lower()
-            if n:find("gun") or n:find("pistol") or n:find("revolver") then return item end
+            if n:find("gun") or n:find("pistol") or n:find("revolver") then return true end
         end
     end
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -233,11 +236,37 @@ local function getLocalGun()
         for _, item in ipairs(bp:GetChildren()) do
             if item:IsA("Tool") then
                 local n = item.Name:lower()
-                if n:find("gun") or n:find("pistol") or n:find("revolver") then return item end
+                if n:find("gun") or n:find("pistol") or n:find("revolver") then return true end
             end
         end
     end
-    return nil
+    return false
+end
+
+local function equipGun()
+    if not LocalPlayer.Character then return false end
+    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if item:IsA("Tool") then
+            local n = item.Name:lower()
+            if n:find("gun") or n:find("pistol") or n:find("revolver") then
+                pcall(function() LocalPlayer.Character.Humanoid:EquipTool(item) end)
+                return true
+            end
+        end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") then
+                local n = item.Name:lower()
+                if n:find("gun") or n:find("pistol") or n:find("revolver") then
+                    pcall(function() LocalPlayer.Character.Humanoid:EquipTool(item) end)
+                    return true
+                end
+            end
+        end
+    end
+    return false
 end
 
 local function getGroundY(origin)
@@ -270,25 +299,261 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== БЛОК (СТАДИЯ) - НЕВИДИМЫЙ И МАЛЕНЬКИЙ =====
+-- ===== SHOOT BUTTON =====
 -- ========================================
 
-local function createFlyBlock()
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
+local function createShootButton()
+    if Cache.ShootButton then
+        pcall(function() Cache.ShootButton:Destroy() end)
+        Cache.ShootButton = nil
     end
     
-    local block = Instance.new("Part")
-    block.Name = "FlyBlock"
-    block.Size = Vector3.new(0.1, 0.1, 0.1)
-    block.Transparency = 1
-    block.CanCollide = false
-    block.Anchored = true
-    block.Parent = workspace
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ShootButton"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     
-    Cache.FlyBlockPart = block
-    return block
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 100, 0, 50)
+    button.Position = UDim2.new(0.5, -50, 0.7, 0)
+    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    button.BackgroundTransparency = 0.1
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Text = "Shoot"
+    button.TextSize = 18
+    button.Font = Enum.Font.GothamBold
+    button.BorderSizePixel = 2
+    button.BorderColor3 = Color3.fromRGB(60, 60, 60)
+    button.Parent = screenGui
+    button.ClipsDescendants = true
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = button
+    
+    local holdTime = 0
+    local isHolding = false
+    local dragStarted = false
+    
+    button.MouseButton1Down:Connect(function()
+        isHolding = true
+        holdTime = 0
+        dragStarted = false
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        
+        task.spawn(function()
+            while isHolding do
+                task.wait(0.1)
+                holdTime = holdTime + 0.1
+                if holdTime >= 1.5 and not dragStarted then
+                    dragStarted = true
+                    button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                end
+            end
+        end)
+    end)
+    
+    button.MouseButton1Up:Connect(function()
+        isHolding = false
+        if not dragStarted then
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            -- ВЫПОЛНЯЕМ SHOOT
+            task.spawn(function()
+                if not LocalPlayer.Character then return end
+                if not equipGun() then
+                    StarterGui:SetCore("SendNotification",{Title="Shoot",Text="❌ Нет оружия!",Duration=2})
+                    return
+                end
+                
+                local target = nil
+                local targetDist = math.huge
+                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not myHRP then return end
+                
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        if checkKnife(player) and isPlayerVisible(player) then
+                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                local dist = (myHRP.Position - hrp.Position).Magnitude
+                                if dist < targetDist then
+                                    targetDist = dist
+                                    target = player
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if not target then
+                    StarterGui:SetCore("SendNotification",{Title="Shoot",Text="❌ Murder не найден!",Duration=2})
+                    return
+                end
+                
+                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                if not tHRP then return end
+                
+                -- ПРЕДСКАЗАНИЕ (0.1 сек)
+                local vel = tHRP.AssemblyLinearVelocity
+                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
+                
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+                
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                end)
+            end)
+        else
+            dragStarted = false
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        end
+    end)
+    
+    -- ПЕРЕТАСКИВАНИЕ
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    button.MouseButton1Down:Connect(function()
+        dragging = true
+        dragStart = UserInputService:GetMouseLocation()
+        startPos = button.Position
+    end)
+    
+    button.MouseButton1Up:Connect(function()
+        dragging = false
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+            local delta = input.Position - dragStart
+            button.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    Cache.ShootButton = screenGui
+    return screenGui
+end
+
+local function toggleShootButton(enabled)
+    Settings.ShootButtonEnabled = enabled
+    if enabled then
+        createShootButton()
+    else
+        if Cache.ShootButton then
+            pcall(function() Cache.ShootButton:Destroy() end)
+            Cache.ShootButton = nil
+        end
+    end
+end
+
+-- ========================================
+-- ===== GRAB GUN (СКАНИРУЕТ WORKSPACE) =====
+-- ========================================
+
+local function grabGun()
+    local found = false
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Tool") then
+            local n = obj.Name:lower()
+            if n:find("gun") or n:find("pistol") or n:find("revolver") then
+                local handle = obj:FindFirstChild("Handle")
+                if handle and LocalPlayer.Character then
+                    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0, 3, 0))
+                        StarterGui:SetCore("SendNotification",{Title="Grab Gun",Text="✅ Телепорт к оружию!",Duration=2})
+                        found = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if not found then
+        StarterGui:SetCore("SendNotification",{Title="Grab Gun",Text="❌ Оружие не найдено!",Duration=2})
+    end
+end
+
+-- ========================================
+-- ===== MOBILE BUTTONS =====
+-- ========================================
+
+local MobileButtons = {}
+
+local function createMobileButton(functionName, label)
+    if MobileButtons[label] then
+        pcall(function() MobileButtons[label]:Destroy() end)
+        MobileButtons[label] = nil
+    end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "MobileButton_" .. label
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 80, 0, 40)
+    button.Position = UDim2.new(0.1, 0, 0.3 + #MobileButtons * 0.05, 0)
+    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    button.BackgroundTransparency = 0.1
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Text = label
+    button.TextSize = 14
+    button.Font = Enum.Font.GothamBold
+    button.BorderSizePixel = 2
+    button.BorderColor3 = Color3.fromRGB(60, 60, 60)
+    button.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = button
+    
+    button.MouseButton1Click:Connect(function()
+        -- ВЫПОЛНЯЕМ ФУНКЦИЮ
+        if functionName == "Fly" then
+            Settings.FlyEnabled = not Settings.FlyEnabled
+            if Settings.FlyEnabled then startFly() else stopFly() end
+        elseif functionName == "Spin" then
+            SpinBot.Enabled = not SpinBot.Enabled
+            setupSpinBot()
+        elseif functionName == "Noclip" then
+            Settings.NoclipEnabled = not Settings.NoclipEnabled
+            -- ТУТ ЛОГИКА NOCLIP
+        elseif functionName == "Aimbot" then
+            Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
+            setupFovAimbot()
+        elseif functionName == "ESP" then
+            Settings.MurderESP = not Settings.MurderESP
+            Settings.SheriffESP = Settings.MurderESP
+            Settings.InnocentESP = Settings.MurderESP
+            startMainUpdate()
+        end
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        task.wait(0.1)
+        button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    end)
+    
+    MobileButtons[label] = screenGui
+    return screenGui
+end
+
+local function removeMobileButton(label)
+    if MobileButtons[label] then
+        pcall(function() MobileButtons[label]:Destroy() end)
+        MobileButtons[label] = nil
+    end
 end
 
 -- ========================================
@@ -373,7 +638,7 @@ local function clearAllChams()
 end
 
 -- ========================================
--- ===== ESP (INNOCENT → ФИОЛЕТОВЫЙ) =====
+-- ===== ESP =====
 -- ========================================
 
 local function createOrUpdateHighlight(player, color)
@@ -409,7 +674,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== TRACERS (НА HRP) =====
+-- ===== TRACERS =====
 -- ========================================
 
 local function createTracer(player)
@@ -455,7 +720,7 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== TRAILS (НЕ СБРАСЫВАЮТСЯ) =====
+-- ===== TRAILS =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -683,73 +948,6 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== AUTO SHOOT MURDER =====
--- ========================================
-
-local function autoShootMurderLoop()
-    while Settings.AutoShootMurder do
-        if not LocalPlayer.Character then task.wait(1) continue end
-        
-        local myGun = getLocalGun()
-        if not myGun then
-            StarterGui:SetCore("SendNotification",{Title="Auto Shoot",Text="❌ Нет оружия!",Duration=2})
-            Settings.AutoShootMurder = false
-            break
-        end
-        
-        local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not myHRP then task.wait(1) continue end
-        
-        local target = nil
-        local targetDist = math.huge
-        
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                if checkKnife(player) and isPlayerVisible(player) then
-                    local dist = (myHRP.Position - player.Character.HumanoidRootPart.Position).Magnitude
-                    if dist < targetDist then
-                        targetDist = dist
-                        target = player
-                    end
-                end
-            end
-        end
-        
-        if not target then
-            task.wait(0.5)
-            continue
-        end
-        
-        pcall(function() LocalPlayer.Character.Humanoid:EquipTool(myGun) end)
-        
-        local shots = 0
-        while Settings.AutoShootMurder and target and target.Character and target.Character:FindFirstChildOfClass("Humanoid") and target.Character.Humanoid.Health > 0 and shots < 20 do
-            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            if not tHRP then break end
-            
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, tHRP.Position)
-            
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
-                task.wait(0.05)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
-            end)
-            
-            shots = shots + 1
-            task.wait(0.2)
-        end
-        
-        task.wait(0.5)
-    end
-end
-
-local function setupAutoShootMurder()
-    if Settings.AutoShootMurder then
-        task.spawn(autoShootMurderLoop)
-    end
-end
-
--- ========================================
 -- ===== FOV AIMBOT =====
 -- ========================================
 
@@ -877,7 +1075,7 @@ local function teleportToRole(role)
 end
 
 -- ========================================
--- ===== KILL ALL (БЫСТРЫЙ) =====
+-- ===== KILL ALL =====
 -- ========================================
 
 local function stopKillAll()
@@ -926,7 +1124,8 @@ local function killAllPlayers()
                 end
             end
 
-            if #targets == 0 then                StarterGui:SetCore("SendNotification",{Title="Kill All",Text="✅ Все мертвы!",Duration=2})
+            if #targets == 0 then
+                StarterGui:SetCore("SendNotification",{Title="Kill All",Text="✅ Все мертвы!",Duration=2})
                 Cache.KillAllRunning = false
                 break
             end
@@ -969,27 +1168,6 @@ local function killAllPlayers()
             task.wait(0.1)
         end
     end)
-end
-
--- ========================================
--- ===== GRAB GUN =====
--- ========================================
-
-local function grabGun()
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol")) then
-            local handle = obj:FindFirstChild("Handle")
-            if handle and LocalPlayer.Character then
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.CFrame = CFrame.new(handle.Position + Vector3.new(0,3,0))
-                    StarterGui:SetCore("SendNotification",{Title="Grab Gun",Text="✅ Телепорт к оружию!",Duration=2})
-                    return
-                end
-            end
-        end
-    end
-    StarterGui:SetCore("SendNotification",{Title="Grab Gun",Text="❌ Оружие не найдено!",Duration=2})
 end
 
 -- ========================================
@@ -1141,6 +1319,24 @@ local isFlying = false
 local flyBV = nil
 local flyBG = nil
 local origGravity = workspace.Gravity
+
+local function createFlyBlock()
+    if Cache.FlyBlockPart then
+        pcall(function() Cache.FlyBlockPart:Destroy() end)
+        Cache.FlyBlockPart = nil
+    end
+    
+    local block = Instance.new("Part")
+    block.Name = "FlyBlock"
+    block.Size = Vector3.new(0.1, 0.1, 0.1)
+    block.Transparency = 1
+    block.CanCollide = false
+    block.Anchored = true
+    block.Parent = workspace
+    
+    Cache.FlyBlockPart = block
+    return block
+end
 
 local function stopFly()
     isFlying = false
@@ -1402,7 +1598,7 @@ local function updateVisuals()
         elseif Settings.SheriffESP and role == "Sheriff" then
             createOrUpdateHighlight(player, COLORS.Sheriff)
         elseif Settings.InnocentESP and role == "Innocent" then
-            createOrUpdateHighlight(player, COLORS.Innocent) -- ФИОЛЕТОВЫЙ
+            createOrUpdateHighlight(player, COLORS.Innocent)
         else
             removeHighlight(player)
         end
@@ -1512,10 +1708,7 @@ local CombatTab = Window:Tab({Title="Combat", Icon="crosshair"})
 local CombatL = CombatTab:Section({Title="Combat", Side="Left"})
 local CombatR = CombatTab:Section({Title="Aimbot", Side="Right"})
 
-CombatL:Toggle({Title="Auto Shoot Murder", Default=false, Callback=function(v)
-    Settings.AutoShootMurder = v
-    if v then setupAutoShootMurder() end
-end})
+CombatL:Toggle({Title="Shoot Button", Default=false, Callback=function(v) toggleShootButton(v) end})
 
 CombatL:Toggle({Title="Anti Fling", Default=false, Callback=function(v)
     Settings.AntiFlingEnabled = v; setupAntiFling()
@@ -1582,6 +1775,39 @@ EffectsR:Button({Title="Apply Custom Sky", Callback=function() setupSky(Settings
 EffectsR:Button({Title="Remove Sky", Callback=function() removeSky() end})
 EffectsR:Button({Title="🌌 Космос", Callback=function() setupSky("97059048850342") end})
 EffectsR:Button({Title="🌑 Темное небо", Callback=function() setupSky("100140210065251") end})
+
+-- FOR MOBILE
+local MobileTab = Window:Tab({Title="For Mobile", Icon="smartphone"})
+local MobileL = MobileTab:Section({Title="Create Button", Side="Left"})
+local MobileR = MobileTab:Section({Title="Manage", Side="Right"})
+
+local function addMobileButtonUI(functionName, label)
+    createMobileButton(functionName, label)
+    StarterGui:SetCore("SendNotification",{Title="Mobile Button",Text="✅ "..label.." создана!",Duration=2})
+end
+
+local function removeMobileButtonUI(label)
+    removeMobileButton(label)
+    StarterGui:SetCore("SendNotification",{Title="Mobile Button",Text="❌ "..label.." удалена!",Duration=2})
+end
+
+MobileL:Button({Title="+ Fly", Callback=function() addMobileButtonUI("Fly", "Fly") end})
+MobileL:Button({Title="+ Spin", Callback=function() addMobileButtonUI("Spin", "Spin") end})
+MobileL:Button({Title="+ Noclip", Callback=function() addMobileButtonUI("Noclip", "Noclip") end})
+MobileL:Button({Title="+ Aimbot", Callback=function() addMobileButtonUI("Aimbot", "Aimbot") end})
+MobileL:Button({Title="+ ESP", Callback=function() addMobileButtonUI("ESP", "ESP") end})
+
+MobileR:Button({Title="🗑 Remove Fly", Callback=function() removeMobileButtonUI("Fly") end})
+MobileR:Button({Title="🗑 Remove Spin", Callback=function() removeMobileButtonUI("Spin") end})
+MobileR:Button({Title="🗑 Remove Noclip", Callback=function() removeMobileButtonUI("Noclip") end})
+MobileR:Button({Title="🗑 Remove Aimbot", Callback=function() removeMobileButtonUI("Aimbot") end})
+MobileR:Button({Title="🗑 Remove ESP", Callback=function() removeMobileButtonUI("ESP") end})
+MobileR:Button({Title="🗑 Remove All", Callback=function()
+    for label, _ in pairs(MobileButtons) do
+        removeMobileButton(label)
+    end
+    StarterGui:SetCore("SendNotification",{Title="Mobile Button",Text="✅ Все кнопки удалены!",Duration=2})
+end})
 
 -- AUTO FARM
 local FarmTab = Window:Tab({Title="Auto Farm", Icon="star"})
@@ -1682,6 +1908,10 @@ LocalPlayer.CharacterAdded:Connect(function()
     if Settings.FovAimbotEnabled then
         setupFovAimbot()
     end
+    
+    if Settings.ShootButtonEnabled then
+        createShootButton()
+    end
 end)
 
 -- ========================================
@@ -1694,6 +1924,6 @@ createFovCircle()
 
 StarterGui:SetCore("SendNotification",{
     Title = "PlanetHub v3.0",
-    Text = "✅ Loaded! Violet Theme | Innocent = Purple | Kill All Fast",
+    Text = "✅ Violet Theme | Shoot Button | Mobile Buttons",
     Duration = 4
 })
