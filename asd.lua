@@ -1,4 +1,3 @@
-
 -- ========================================
 -- ===== PLANT HUB v3.0 ULTIMATE =====
 -- ========================================
@@ -215,7 +214,7 @@ local function getRoleColor(player)
     local r = getRole(player)
     if r == "Убийца" then return COLORS.Murder end
     if r == "Шериф" then return COLORS.Sheriff end
-    return COLORS.Innocent
+    return COLORS.Purple
 end
 
 local function getLocalKnife()
@@ -356,7 +355,7 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== МОБИЛЬНЫЕ КНОПКИ =====
+-- ===== МОБИЛЬНЫЕ КНОПКИ (ИСПРАВЛЕНЫ) =====
 -- ========================================
 
 local MobileButtons = {}
@@ -383,6 +382,7 @@ local function executeMobileAction(action)
         if noclipConn then
             noclipConn:Disconnect()
             noclipConn = nil
+            notify("Мобилка", "Ноклип: false", 1)
         else
             noclipConn = RunService.Stepped:Connect(function()
                 if not LocalPlayer.Character then return end
@@ -390,8 +390,8 @@ local function executeMobileAction(action)
                     if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end)
+            notify("Мобилка", "Ноклип: true", 1)
         end
-        notify("Мобилка", "Ноклип: " .. tostring(noclipConn ~= nil), 1)
     elseif action == "Aimbot" then
         Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
         if Settings.FovAimbotEnabled then createFovCircle() end
@@ -401,7 +401,9 @@ local function executeMobileAction(action)
         Settings.MurderESP = not Settings.MurderESP
         Settings.SheriffESP = Settings.MurderESP
         Settings.InnocentESP = Settings.MurderESP
+        Settings.TracersEnabled = Settings.MurderESP
         if Settings.MurderESP then
+            for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
             startMainUpdate()
         else
             if Cache.mainConn then
@@ -450,11 +452,13 @@ local function createMobileButton(label, action)
     local dragging = false
     local dragStart = nil
     local startPos = nil
+    local clickStartPos = nil
     
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
+            dragging = false
             dragStart = input.Position
+            clickStartPos = input.Position
             startPos = button.Position
             button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
             button.BackgroundTransparency = 0.1
@@ -462,28 +466,33 @@ local function createMobileButton(label, action)
     end)
 
     button.InputChanged:Connect(function(input)
-        if not dragging then return end
+        if not dragStart then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local delta = input.Position - dragStart
-            button.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
+            if delta.Magnitude > 10 then
+                dragging = true
+                button.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
         end
     end)
 
     button.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             button.BackgroundTransparency = 0.15
             
-            if not dragStart then return end
-            if (input.Position - dragStart).Magnitude < 10 then
+            if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
                 executeMobileAction(action)
             end
+            
+            dragging = false
+            dragStart = nil
+            clickStartPos = nil
         end
     end)
 
