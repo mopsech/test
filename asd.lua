@@ -27,10 +27,8 @@ local function createReleaseBadge()
     badge.TextSize = 11
     badge.Font = Enum.Font.GothamBold
     badge.BorderSizePixel = 0
-    -- Легкая тень для читаемости
     badge.TextStrokeColor3 = Color3.fromRGB(138, 43, 226)
     badge.TextStrokeTransparency = 0
-    -- Скругление
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = badge
@@ -53,10 +51,6 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 190,
     HideSearchBar = false
 })
-
--- ========================================
--- ===== ДОБАВЛЕНИЕ ПЛАШКИ ПОСЛЕ СОЗДАНИЯ ОКНА =====
--- ========================================
 
 local badge = createReleaseBadge()
 badge.Parent = Window.UIElements.Main
@@ -223,8 +217,24 @@ local function getLocalKnife()
     return nil
 end
 
+local function getGroundY(origin)
+    local rayOrigin = origin
+    local rayDirection = Vector3.new(0, -50, 0)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    local char = LocalPlayer.Character
+    if char then
+        raycastParams.FilterDescendantsInstances = {char}
+    end
+    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    if result then
+        return result.Position.Y
+    end
+    return origin.Y - 3
+end
+
 -- ========================================
--- ===== CHAMS (ИСПРАВЛЕНЫ) =====
+-- ===== CHAMS =====
 -- ========================================
 
 local function cacheCharacterParts(player)
@@ -246,7 +256,6 @@ end
 local function applyChams(player)
     if not player or not player.Character then return end
     local char = player.Character
-    
     local oldHL = char:FindFirstChild("PH_Chams")
     if oldHL then pcall(function() oldHL:Destroy() end) end
     
@@ -342,7 +351,7 @@ local function clearAllHighlights()
 end
 
 -- ========================================
--- ===== TRACERS (НА HRP) =====
+-- ===== TRACERS =====
 -- ========================================
 
 local function createTracer(player)
@@ -543,22 +552,6 @@ end
 -- ========================================
 -- ===== JUMP CIRCLES =====
 -- ========================================
-
-local function getGroundY(origin)
-    local rayOrigin = origin
-    local rayDirection = Vector3.new(0, -50, 0)
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    local char = LocalPlayer.Character
-    if char then
-        raycastParams.FilterDescendantsInstances = {char}
-    end
-    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-    if result then
-        return result.Position.Y
-    end
-    return origin.Y - 3
-end
 
 local function createJumpCircle(originPos)
     local groundY = getGroundY(originPos)
@@ -946,7 +939,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== FLY (БЕЗ КНОПОК) =====
+-- ===== FLY =====
 -- ========================================
 
 local flyConn = nil
