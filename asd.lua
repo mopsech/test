@@ -469,7 +469,7 @@ local function setupVignette(en)
 end
 
 -- ========================================
--- ===== SKY (ИСПРАВЛЕН) =====
+-- ===== SKY (ТОЛЬКО ЭТИ ДВА) =====
 -- ========================================
 
 local function setupSky(skyId)
@@ -1391,10 +1391,8 @@ VisualR:Toggle({Title="Vignette", Default=false, Callback=function(v) Settings.V
 VisualR:Input({Title="Sky ID", Default="", Placeholder="rbxassetid://...", Callback=function(v) Settings.CustomSkyId=v end})
 VisualR:Button({Title="Apply Custom Sky", Callback=function() setupSky(Settings.CustomSkyId) end})
 VisualR:Button({Title="Remove Sky", Callback=function() removeSky() end})
-VisualR:Button({Title="🌌 Космос", Callback=function() setupSky("10411802986") end})
-VisualR:Button({Title="🌅 Закат", Callback=function() setupSky("3450603984") end})
-VisualR:Button({Title="🌤 Голубое небо", Callback=function() setupSky("10987362038") end})
-VisualR:Button({Title="🌙 Ночь", Callback=function() setupSky("2796251283") end})
+VisualR:Button({Title="🌌 Космос", Callback=function() setupSky("97059048850342") end})
+VisualR:Button({Title="🌑 Темное небо", Callback=function() setupSky("100140210065251") end})
 
 -- AUTO FARM
 local FarmTab = Window:Tab({Title="Auto Farm", Icon="star"})
