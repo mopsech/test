@@ -145,7 +145,7 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     GrabGunButton = nil,
-    GrabGunButtonGui = nil,
+    GrabGunGui = nil,
     MobileButtons = {},
     mainConn = nil,
     GrabGunRunning = false,
@@ -309,36 +309,51 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== УДАЛЕНИЕ СТАДА (FLY BLOCK) =====
+-- ===== НЕОН-ТРЕЙС ОТ ВЫСТРЕЛА =====
 -- ========================================
 
-local function removeFlyBlock()
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
-    end
+local function createGunBeam(startPos, endPos, color, duration)
+    duration = duration or 0.2
+    color = color or Color3.fromRGB(180, 50, 255) -- фиолетовый по умолчанию
+
+    local distance = (startPos - endPos).Magnitude
+    if distance < 1 then return end
+
+    -- Создаём луч
+    local beam = Instance.new("Part")
+    beam.Name = "GunBeam"
+    beam.Size = Vector3.new(0.15, 0.15, distance)
+    beam.CFrame = CFrame.lookAt(startPos, endPos) * CFrame.new(0, 0, -distance / 2)
+    beam.Anchored = true
+    beam.CanCollide = false
+    beam.Material = Enum.Material.Neon
+    beam.Color = color
+    beam.Transparency = 0.1
+    beam.Parent = workspace
+
+    -- Свет
+    local light = Instance.new("PointLight")
+    light.Color = color
+    light.Brightness = 10
+    light.Range = 15
+    light.Parent = beam
+
+    -- Анимация исчезновения
+    task.spawn(function()
+        for i = 1, 10 do
+            task.wait(duration / 10)
+            beam.Transparency = beam.Transparency + 0.09
+            beam.Size = Vector3.new(beam.Size.X * 0.95, beam.Size.Y * 0.95, beam.Size.Z)
+        end
+        beam:Destroy()
+    end)
+
+    return beam
 end
 
-local function createFlyBlock()
-    removeFlyBlock()
-    local block = Instance.new("Part")
-    block.Name = "FlyBlock"
-    block.Size = Vector3.new(0.01, 0.01, 0.01) -- МАЛЕНЬКИЙ
-    block.Transparency = 1 -- НЕВИДИМЫЙ
-    block.CanCollide = false
-    block.Anchored = true
-    block.Parent = workspace
-    Cache.FlyBlockPart = block
-    return block
-end
-
 -- ========================================
--- GRAB GUN (НОВАЯ КНОПКА - УНИВЕРСАЛЬНАЯ)
+-- ===== GRAB GUN =====
 -- ========================================
-
-local GrabGunButton = nil
-local GrabGunGui = nil
-local GrabGunEnabled = false
 
 local function findWeapon()
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -355,14 +370,19 @@ local function findWeapon()
 end
 
 local function grabGunAction()
+    if Cache.GrabGunRunning then return end
+    Cache.GrabGunRunning = true
+
     if not LocalPlayer.Character then
         notify("Grab Gun", "Персонаж не найден", 2)
+        Cache.GrabGunRunning = false
         return
     end
 
     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then
         notify("Grab Gun", "HRP не найден", 2)
+        Cache.GrabGunRunning = false
         return
     end
 
@@ -371,41 +391,38 @@ local function grabGunAction()
     local weapon = findWeapon()
     if not weapon then
         notify("Grab Gun", "Оружие не найдено", 2)
+        Cache.GrabGunRunning = false
         return
     end
 
     local handle = weapon:FindFirstChild("Handle")
     if not handle then
-        notify("Grab Gun", "Нет Handle у оружия", 2)
+        notify("Grab Gun", "Нет Handle", 2)
+        Cache.GrabGunRunning = false
         return
     end
 
-    -- Телепорт к оружию
     hrp.CFrame = handle.CFrame * CFrame.new(0, 2, 2)
     task.wait(0.1)
-    
-    -- Возврат на место
     hrp.CFrame = originalCFrame
 
-    -- Подбор оружия
     local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
         if not tool then
             humanoid:EquipTool(weapon)
             notify("Grab Gun", "Подобрано: " .. weapon.Name, 2)
-        else
-            notify("Grab Gun", "Уже есть оружие: " .. tool.Name, 2)
         end
     end
+
+    Cache.GrabGunRunning = false
 end
 
 local function createGrabGunButton()
-    -- Удаляем старую кнопку
-    if GrabGunGui then
-        pcall(function() GrabGunGui:Destroy() end)
-        GrabGunGui = nil
-        GrabGunButton = nil
+    if Cache.GrabGunGui then
+        pcall(function() Cache.GrabGunGui:Destroy() end)
+        Cache.GrabGunGui = nil
+        Cache.GrabGunButton = nil
     end
     
     local screenGui = Instance.new("ScreenGui")
@@ -447,11 +464,12 @@ local function createGrabGunButton()
             clickStartPos = input.Position
             startPos = button.Position
             button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            button.BackgroundTransparency = 0.1
         end
     end)
 
     button.InputChanged:Connect(function(input)
-        if not dragStart then return
+        if not dragStart then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local delta = input.Position - dragStart
             if delta.Magnitude > 10 then
@@ -469,6 +487,7 @@ local function createGrabGunButton()
     button.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            button.BackgroundTransparency = 0.1
             
             if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
                 grabGunAction()
@@ -480,27 +499,66 @@ local function createGrabGunButton()
         end
     end)
 
-    GrabGunButton = button
-    GrabGunGui = screenGui
+    Cache.GrabGunButton = button
+    Cache.GrabGunGui = screenGui
     return screenGui
 end
 
 local function toggleGrabGunButton()
-    GrabGunEnabled = not GrabGunEnabled
-    if GrabGunEnabled then
+    Settings.GrabGunEnabled = not Settings.GrabGunEnabled
+    if Settings.GrabGunEnabled then
         createGrabGunButton()
         notify("Grab Gun", "Кнопка создана", 2)
     else
-        if GrabGunGui then
-            pcall(function() GrabGunGui:Destroy() end)
-            GrabGunGui = nil
-            GrabGunButton = nil
+        if Cache.GrabGunGui then
+            pcall(function() Cache.GrabGunGui:Destroy() end)
+            Cache.GrabGunGui = nil
+            Cache.GrabGunButton = nil
         end
         notify("Grab Gun", "Кнопка удалена", 2)
     end
 end
+
 -- ========================================
--- ===== CHAMS С НАСТРОЙКОЙ ЦВЕТА =====
+-- ===== WALL HOP =====
+-- ========================================
+
+local function setupWallHop()
+    safeDisconnect(Cache.WallHopConnection)
+    Cache.WallHopConnection = nil
+    
+    if not Settings.WallHopEnabled then return end
+    
+    local lastJump = 0
+    Cache.WallHopConnection = RunService.Heartbeat:Connect(function()
+        if not LocalPlayer.Character then return end
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            local now = tick()
+            if now - lastJump > 0.25 then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                lastJump = now
+            end
+        end
+    end)
+end
+
+local function toggleWallHop(value)
+    Settings.WallHopEnabled = value
+    if value then
+        setupWallHop()
+        notify("Wall Hop", "Включен", 2)
+    else
+        safeDisconnect(Cache.WallHopConnection)
+        Cache.WallHopConnection = nil
+        notify("Wall Hop", "Выключен", 2)
+    end
+end
+
+-- ========================================
+-- ===== CHAMS =====
 -- ========================================
 
 local function cacheCharacterParts(player)
@@ -702,7 +760,7 @@ local function clearAllTracers()
 end
 
 -- ========================================
--- ===== ТРАИЛЫ =====
+-- ===== TRAILS =====
 -- ========================================
 
 local function createLocalPlayerTrail()
@@ -941,7 +999,8 @@ end
 
 local function getClosestMurderInFov()
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local bestP = nil    local bestDist = math.huge
+    local bestP = nil
+    local bestDist = math.huge
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -1052,45 +1111,6 @@ local function teleportToRole(role)
 end
 
 -- ========================================
--- WALL HOP (INFINITY JUMP)
--- ========================================
-
-local wallHopConnection = nil
-local wallHopLastJump = 0
-local WallHopEnabled = false
-
-local function toggleWallHop(value)
-    WallHopEnabled = value
-    
-    if wallHopConnection then
-        wallHopConnection:Disconnect()
-        wallHopConnection = nil
-    end
-    
-    if not WallHopEnabled then
-        notify("Wall Hop", "Выключен", 2)
-        return
-    end
-    
-    wallHopConnection = RunService.Heartbeat:Connect(function()
-        if not LocalPlayer.Character then return
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if not hum then return
-        
-        -- Проверяем, зажат ли пробел
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            local now = tick()
-            if now - wallHopLastJump > 0.25 then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                wallHopLastJump = now
-            end
-        end
-    end)
-    
-    notify("Wall Hop", "Включен (кулдаун 0.25 сек)", 2)
-end
-
--- ========================================
 -- ===== ЗАЩИТА ОТ АФК =====
 -- ========================================
 
@@ -1111,7 +1131,7 @@ local function setupAntiAFK()
 end
 
 -- ========================================
--- ===== АВТО ФАРМ (С РАБОЧИМ РЕСЕТОМ) =====
+-- ===== АВТО ФАРМ =====
 -- ========================================
 
 local function getCurrentCoins()
@@ -1237,7 +1257,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== ПОЛЁТ (БЕЗ СТАДА) =====
+-- ===== ПОЛЁТ =====
 -- ========================================
 
 local flyConn = nil
@@ -1245,6 +1265,24 @@ local isFlying = false
 local flyBV = nil
 local flyBG = nil
 local origGravity = workspace.Gravity
+
+local function createFlyBlock()
+    if Cache.FlyBlockPart then
+        pcall(function() Cache.FlyBlockPart:Destroy() end)
+        Cache.FlyBlockPart = nil
+    end
+    
+    local block = Instance.new("Part")
+    block.Name = "FlyBlock"
+    block.Size = Vector3.new(0.01, 0.01, 0.01)
+    block.Transparency = 1
+    block.CanCollide = false
+    block.Anchored = true
+    block.Parent = workspace
+    
+    Cache.FlyBlockPart = block
+    return block
+end
 
 local function stopFly()
     isFlying = false
@@ -1563,7 +1601,7 @@ local function setupSheriffDeadNotif()
 end
 
 -- ========================================
--- ===== КНОПКА ВЫСТРЕЛА =====
+-- ===== КНОПКА ВЫСТРЕЛА (С НЕОН-ТРЕЙСОМ) =====
 -- ========================================
 
 local function createShootButton()
@@ -1650,6 +1688,11 @@ local function createShootButton()
                 
                 local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
                 if not tHRP then return end
+                
+                -- Создаём неон-трейс от камеры к цели
+                local startPos = Camera.CFrame.Position
+                local endPos = tHRP.Position + Vector3.new(0, 0, 0)
+                createGunBeam(startPos, endPos, Color3.fromRGB(180, 50, 255), 0.2)
                 
                 local vel = tHRP.AssemblyLinearVelocity
                 local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
@@ -1753,6 +1796,10 @@ local function createShootButton()
                 
                 local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
                 if not tHRP then return end
+                
+                local startPos = Camera.CFrame.Position
+                local endPos = tHRP.Position + Vector3.new(0, 0, 0)
+                createGunBeam(startPos, endPos, Color3.fromRGB(180, 50, 255), 0.2)
                 
                 local vel = tHRP.AssemblyLinearVelocity
                 local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
@@ -2073,9 +2120,7 @@ end})
 RageM:Button({Title = "Телепорт к убийце", Callback = function() teleportToRole("Убийца") end})
 RageM:Button({Title = "Телепорт к шерифу", Callback = function() teleportToRole("Шериф") end})
 
-RageA:Button({Title = "Grab Gun", Callback = function()
-    toggleGrabGunButton(not Settings.GrabGunEnabled)
-end})
+RageA:Button({Title = "Grab Gun", Callback = function() toggleGrabGunButton() end})
 
 -- КОМБАТ
 local CombatTab = Window:Tab({Title = "Комбат", Icon = "crosshair"})
@@ -2241,10 +2286,6 @@ LocalPlayer.CharacterAdded:Connect(function()
         createShootButton()
     end
     
-    if Settings.GrabGunEnabled then
-        createGrabGunButton()
-    end
-
     if Settings.WallHopEnabled then
         setupWallHop()
     end
