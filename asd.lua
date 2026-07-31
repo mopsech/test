@@ -402,10 +402,13 @@ local function grabGunAction()
         return
     end
 
+    -- Телепорт к оружию
     hrp.CFrame = handle.CFrame * CFrame.new(0, 2, 2)
     task.wait(0.1)
+    -- Возврат на позицию
     hrp.CFrame = originalCFrame
 
+    -- Подбор
     local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
@@ -451,7 +454,7 @@ local function createGrabGunButton()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = button
 
-    -- Перетаскивание
+    -- Перетаскивание (универсальное для мыши и тача)
     local dragging = false
     local dragStart = nil
     local startPos = nil
@@ -489,6 +492,7 @@ local function createGrabGunButton()
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
             button.BackgroundTransparency = 0.1
             
+            -- Если не перетаскивали, значит это клик
             if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
                 grabGunAction()
             end
@@ -1639,81 +1643,23 @@ local function createShootButton()
     local isDragging = false
     local dragStart = nil
     local startPos = nil
-    local isHeld = false
+    local clickStartPos = nil
     
-    button.MouseButton1Down:Connect(function()
-        isHeld = true
-        dragStart = UserInputService:GetMouseLocation()
-        startPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        button.BackgroundTransparency = 0.1
-    end)
-    
-    button.MouseButton1Up:Connect(function()
-        isHeld = false
-        if not isDragging then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            button.BackgroundTransparency = 0.15
-            task.spawn(function()
-                if not LocalPlayer.Character then return end
-                if not equipGun() then
-                    notify("Выстрел", "Оружие не найдено", 2)
-                    return
-                end
-                
-                local target = nil
-                local targetDist = math.huge
-                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
-                
-                for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character then
-                        if checkKnife(player) and isPlayerVisible(player) then
-                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                local dist = (myHRP.Position - hrp.Position).Magnitude
-                                if dist < targetDist then
-                                    targetDist = dist
-                                    target = player
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                if not target then
-                    notify("Выстрел", "Убийца не найден", 2)
-                    return
-                end
-                
-                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-                if not tHRP then return end
-                
-                -- Создаём неон-трейс от камеры к цели
-                local startPos = Camera.CFrame.Position
-                local endPos = tHRP.Position + Vector3.new(0, 0, 0)
-                createGunBeam(startPos, endPos, Color3.fromRGB(180, 50, 255), 0.2)
-                
-                local vel = tHRP.AssemblyLinearVelocity
-                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
-                
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
-                
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
-                end)
-            end)
-        else
+    -- Логика перетаскивания и клика
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             isDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            button.BackgroundTransparency = 0.15
+            dragStart = input.Position
+            clickStartPos = input.Position
+            startPos = button.Position
+            button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            button.BackgroundTransparency = 0.1
         end
     end)
     
-    UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and isHeld then
+    button.InputChanged:Connect(function(input)
+        if not dragStart then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local delta = input.Position - dragStart
             if delta.Magnitude > 10 then
                 isDragging = true
@@ -1729,93 +1675,75 @@ local function createShootButton()
         end
     end)
     
-    local touchStart = nil
-    local touchPos = nil
-    local touchDragging = false
-    
-    button.TouchBegan:Connect(function(touch)
-        isHeld = true
-        touchStart = touch.Position
-        touchPos = button.Position
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        button.BackgroundTransparency = 0.1
-    end)
-    
-    button.TouchMoved:Connect(function(touch)
-        if not isHeld then return end
-        local delta = touch.Position - touchStart
-        if delta.Magnitude > 10 then
-            touchDragging = true
-        end
-        if touchDragging then
-            button.Position = UDim2.new(
-                touchPos.X.Scale,
-                touchPos.X.Offset + delta.X,
-                touchPos.Y.Scale,
-                touchPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    
-    button.TouchEnded:Connect(function()
-        isHeld = false
-        if not touchDragging then
+    button.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             button.BackgroundTransparency = 0.15
-            task.spawn(function()
-                if not LocalPlayer.Character then return end
-                if not equipGun() then
-                    notify("Выстрел", "Оружие не найдено", 2)
-                    return
-                end
-                
-                local target = nil
-                local targetDist = math.huge
-                local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
-                
-                for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character then
-                        if checkKnife(player) and isPlayerVisible(player) then
-                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                local dist = (myHRP.Position - hrp.Position).Magnitude
-                                if dist < targetDist then
-                                    targetDist = dist
-                                    target = player
+            
+            -- Если не перетаскивали, выполняем действие
+            if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
+                task.spawn(function()
+                    if not LocalPlayer.Character then return end
+                    
+                    -- Проверка оружия
+                    if not equipGun() then
+                        notify("Выстрел", "Оружие не найдено", 2)
+                        return
+                    end
+                    
+                    -- Поиск цели (убийцы)
+                    local target = nil
+                    local targetDist = math.huge
+                    local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if not myHRP then return end
+                    
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character then
+                            if checkKnife(player) and isPlayerVisible(player) then
+                                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                                if hrp then
+                                    local dist = (myHRP.Position - hrp.Position).Magnitude
+                                    if dist < targetDist then
+                                        targetDist = dist
+                                        target = player
+                                    end
                                 end
                             end
                         end
                     end
-                end
-                
-                if not target then
-                    notify("Выстрел", "Убийца не найден", 2)
-                    return
-                end
-                
-                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-                if not tHRP then return end
-                
-                local startPos = Camera.CFrame.Position
-                local endPos = tHRP.Position + Vector3.new(0, 0, 0)
-                createGunBeam(startPos, endPos, Color3.fromRGB(180, 50, 255), 0.2)
-                
-                local vel = tHRP.AssemblyLinearVelocity
-                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
-                
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
-                
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                    
+                    if not target then
+                        notify("Выстрел", "Убийца не найден", 2)
+                        return
+                    end
+                    
+                    local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                    if not tHRP then return end
+                    
+                    -- Создаём неон-трейс от камеры к цели
+                    local beamStart = Camera.CFrame.Position
+                    local beamEnd = tHRP.Position
+                    createGunBeam(beamStart, beamEnd, Color3.fromRGB(180, 50, 255), 0.2)
+                    
+                    -- Предсказание движения (0.1 сек)
+                    local vel = tHRP.AssemblyLinearVelocity
+                    local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
+                    
+                    -- Наводка камеры
+                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+                    
+                    -- Выстрел
+                    pcall(function()
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
+                        task.wait(0.05)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                    end)
                 end)
-            end)
-        else
-            touchDragging = false
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            button.BackgroundTransparency = 0.15
+            end
+            
+            isDragging = false
+            dragStart = nil
+            clickStartPos = nil
         end
     end)
     
