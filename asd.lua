@@ -333,8 +333,12 @@ local function createFlyBlock()
 end
 
 -- ========================================
--- ===== GRAB GUN (НОВАЯ КНОПКА) =====
+-- GRAB GUN (НОВАЯ КНОПКА - УНИВЕРСАЛЬНАЯ)
 -- ========================================
+
+local GrabGunButton = nil
+local GrabGunGui = nil
+local GrabGunEnabled = false
 
 local function findWeapon()
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -351,19 +355,14 @@ local function findWeapon()
 end
 
 local function grabGunAction()
-    if Cache.GrabGunRunning then return end
-    Cache.GrabGunRunning = true
-
     if not LocalPlayer.Character then
         notify("Grab Gun", "Персонаж не найден", 2)
-        Cache.GrabGunRunning = false
         return
     end
 
     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then
         notify("Grab Gun", "HRP не найден", 2)
-        Cache.GrabGunRunning = false
         return
     end
 
@@ -372,42 +371,41 @@ local function grabGunAction()
     local weapon = findWeapon()
     if not weapon then
         notify("Grab Gun", "Оружие не найдено", 2)
-        Cache.GrabGunRunning = false
         return
     end
 
     local handle = weapon:FindFirstChild("Handle")
     if not handle then
-        notify("Grab Gun", "Нет Handle", 2)
-        Cache.GrabGunRunning = false
+        notify("Grab Gun", "Нет Handle у оружия", 2)
         return
     end
 
+    -- Телепорт к оружию
     hrp.CFrame = handle.CFrame * CFrame.new(0, 2, 2)
     task.wait(0.1)
+    
+    -- Возврат на место
     hrp.CFrame = originalCFrame
 
+    -- Подбор оружия
     local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
         if not tool then
             humanoid:EquipTool(weapon)
             notify("Grab Gun", "Подобрано: " .. weapon.Name, 2)
+        else
+            notify("Grab Gun", "Уже есть оружие: " .. tool.Name, 2)
         end
     end
-
-    Cache.GrabGunRunning = false
 end
 
--- ========================================
--- ===== GRAB GUN КНОПКА (МИНИМАЛИСТИЧНАЯ) =====
--- ========================================
-
 local function createGrabGunButton()
-    if Cache.GrabGunButtonGui then
-        pcall(function() Cache.GrabGunButtonGui:Destroy() end)
-        Cache.GrabGunButtonGui = nil
-        Cache.GrabGunButton = nil
+    -- Удаляем старую кнопку
+    if GrabGunGui then
+        pcall(function() GrabGunGui:Destroy() end)
+        GrabGunGui = nil
+        GrabGunButton = nil
     end
     
     local screenGui = Instance.new("ScreenGui")
@@ -436,7 +434,7 @@ local function createGrabGunButton()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = button
 
-    -- ПЕРЕТАСКИВАНИЕ
+    -- Перетаскивание
     local dragging = false
     local dragStart = nil
     local startPos = nil
@@ -449,12 +447,11 @@ local function createGrabGunButton()
             clickStartPos = input.Position
             startPos = button.Position
             button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-            button.BackgroundTransparency = 0.1
         end
     end)
 
     button.InputChanged:Connect(function(input)
-        if not dragStart then return end
+        if not dragStart then return
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             local delta = input.Position - dragStart
             if delta.Magnitude > 10 then
@@ -472,7 +469,6 @@ local function createGrabGunButton()
     button.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-            button.BackgroundTransparency = 0.1
             
             if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
                 grabGunAction()
@@ -484,26 +480,25 @@ local function createGrabGunButton()
         end
     end)
 
-    Cache.GrabGunButton = button
-    Cache.GrabGunButtonGui = screenGui
+    GrabGunButton = button
+    GrabGunGui = screenGui
     return screenGui
 end
 
-local function toggleGrabGunButton(enabled)
-    Settings.GrabGunEnabled = enabled
-    if enabled then
+local function toggleGrabGunButton()
+    GrabGunEnabled = not GrabGunEnabled
+    if GrabGunEnabled then
         createGrabGunButton()
         notify("Grab Gun", "Кнопка создана", 2)
     else
-        if Cache.GrabGunButtonGui then
-            pcall(function() Cache.GrabGunButtonGui:Destroy() end)
-            Cache.GrabGunButtonGui = nil
-            Cache.GrabGunButton = nil
+        if GrabGunGui then
+            pcall(function() GrabGunGui:Destroy() end)
+            GrabGunGui = nil
+            GrabGunButton = nil
         end
         notify("Grab Gun", "Кнопка удалена", 2)
     end
 end
-
 -- ========================================
 -- ===== CHAMS С НАСТРОЙКОЙ ЦВЕТА =====
 -- ========================================
@@ -1057,23 +1052,32 @@ local function teleportToRole(role)
 end
 
 -- ========================================
--- ===== WALL HOP (INFINITY JUMP) =====
+-- WALL HOP (INFINITY JUMP)
 -- ========================================
 
 local wallHopConnection = nil
 local wallHopLastJump = 0
+local WallHopEnabled = false
 
-local function setupWallHop()
-    safeDisconnect(wallHopConnection)
-    wallHopConnection = nil
+local function toggleWallHop(value)
+    WallHopEnabled = value
     
-    if not Settings.WallHopEnabled then return end
+    if wallHopConnection then
+        wallHopConnection:Disconnect()
+        wallHopConnection = nil
+    end
+    
+    if not WallHopEnabled then
+        notify("Wall Hop", "Выключен", 2)
+        return
+    end
     
     wallHopConnection = RunService.Heartbeat:Connect(function()
-        if not LocalPlayer.Character then return end
+        if not LocalPlayer.Character then return
         local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
+        if not hum then return
         
+        -- Проверяем, зажат ли пробел
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             local now = tick()
             if now - wallHopLastJump > 0.25 then
@@ -1082,18 +1086,8 @@ local function setupWallHop()
             end
         end
     end)
-end
-
-local function toggleWallHop(enabled)
-    Settings.WallHopEnabled = enabled
-    if enabled then
-        setupWallHop()
-        notify("Wall Hop", "Включен", 2)
-    else
-        safeDisconnect(wallHopConnection)
-        wallHopConnection = nil
-        notify("Wall Hop", "Выключен", 2)
-    end
+    
+    notify("Wall Hop", "Включен (кулдаун 0.25 сек)", 2)
 end
 
 -- ========================================
