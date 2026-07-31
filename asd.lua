@@ -121,6 +121,7 @@ local Settings = {
     AntiAFKEnabled = false,
     ShootButtonEnabled = false,
     GrabGunEnabled = false,
+    WallHopEnabled = false,
 }
 
 -- ========================================
@@ -144,9 +145,11 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     GrabGunButton = nil,
+    GrabGunButtonGui = nil,
     MobileButtons = {},
     mainConn = nil,
     GrabGunRunning = false,
+    WallHopConnection = nil,
 }
 
 local COLORS = {
@@ -306,7 +309,31 @@ local function isPlayerVisible(player)
 end
 
 -- ========================================
--- ===== GRAB GUN (НОВАЯ ВЕРСИЯ) =====
+-- ===== УДАЛЕНИЕ СТАДА (FLY BLOCK) =====
+-- ========================================
+
+local function removeFlyBlock()
+    if Cache.FlyBlockPart then
+        pcall(function() Cache.FlyBlockPart:Destroy() end)
+        Cache.FlyBlockPart = nil
+    end
+end
+
+local function createFlyBlock()
+    removeFlyBlock()
+    local block = Instance.new("Part")
+    block.Name = "FlyBlock"
+    block.Size = Vector3.new(0.01, 0.01, 0.01) -- МАЛЕНЬКИЙ
+    block.Transparency = 1 -- НЕВИДИМЫЙ
+    block.CanCollide = false
+    block.Anchored = true
+    block.Parent = workspace
+    Cache.FlyBlockPart = block
+    return block
+end
+
+-- ========================================
+-- ===== GRAB GUN (НОВАЯ КНОПКА) =====
 -- ========================================
 
 local function findWeapon()
@@ -326,11 +353,6 @@ end
 local function grabGunAction()
     if Cache.GrabGunRunning then return end
     Cache.GrabGunRunning = true
-
-    if not Settings.GrabGunEnabled then
-        Cache.GrabGunRunning = false
-        return
-    end
 
     if not LocalPlayer.Character then
         notify("Grab Gun", "Персонаж не найден", 2)
@@ -377,23 +399,14 @@ local function grabGunAction()
     Cache.GrabGunRunning = false
 end
 
-local function toggleGrabGun(state)
-    Settings.GrabGunEnabled = state
-    if state then
-        notify("Grab Gun", "Включен", 2)
-        grabGunAction()
-    else
-        notify("Grab Gun", "Выключен", 2)
-    end
-end
-
 -- ========================================
--- ===== GRAB GUN КНОПКА =====
+-- ===== GRAB GUN КНОПКА (МИНИМАЛИСТИЧНАЯ) =====
 -- ========================================
 
 local function createGrabGunButton()
-    if Cache.GrabGunButton then
-        pcall(function() Cache.GrabGunButton:Destroy() end)
+    if Cache.GrabGunButtonGui then
+        pcall(function() Cache.GrabGunButtonGui:Destroy() end)
+        Cache.GrabGunButtonGui = nil
         Cache.GrabGunButton = nil
     end
     
@@ -405,43 +418,89 @@ local function createGrabGunButton()
     screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 160, 0, 50)
-    button.Position = UDim2.new(0.5, -80, 0.15, 0)
-    button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = "🔫 GRAB GUN: ВЫКЛ"
-    button.TextSize = 16
+    button.Size = UDim2.new(0, 90, 0, 40)
+    button.Position = UDim2.new(0.85, 0, 0.1, 0)
+    button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    button.BackgroundTransparency = 0.1
+    button.TextColor3 = Color3.fromRGB(200, 200, 210)
+    button.Text = "ɢʀᴀʙ ɢᴜɴ"
+    button.TextSize = 13
     button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 0
+    button.BorderSizePixel = 1
+    button.BorderColor3 = Color3.fromRGB(50, 50, 60)
+    button.BorderTransparency = 0.3
     button.Parent = screenGui
+    button.ClipsDescendants = true
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
+    corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = button
 
-    local isOn = false
-    button.MouseButton1Click:Connect(function()
-        isOn = not isOn
-        button.Text = isOn and "🔫 GRAB GUN: ВКЛ" or "🔫 GRAB GUN: ВЫКЛ"
-        button.BackgroundColor3 = isOn and Color3.fromRGB(40, 200, 40) or Color3.fromRGB(40, 40, 50)
-        toggleGrabGun(isOn)
-        if isOn then
-            grabGunAction()
+    -- ПЕРЕТАСКИВАНИЕ
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    local clickStartPos = nil
+    
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            dragStart = input.Position
+            clickStartPos = input.Position
+            startPos = button.Position
+            button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            button.BackgroundTransparency = 0.1
         end
     end)
 
-    Cache.GrabGunButton = screenGui
+    button.InputChanged:Connect(function(input)
+        if not dragStart then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 10 then
+                dragging = true
+                button.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
+        end
+    end)
+
+    button.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            button.BackgroundTransparency = 0.1
+            
+            if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
+                grabGunAction()
+            end
+            
+            dragging = false
+            dragStart = nil
+            clickStartPos = nil
+        end
+    end)
+
+    Cache.GrabGunButton = button
+    Cache.GrabGunButtonGui = screenGui
     return screenGui
 end
 
 local function toggleGrabGunButton(enabled)
+    Settings.GrabGunEnabled = enabled
     if enabled then
         createGrabGunButton()
+        notify("Grab Gun", "Кнопка создана", 2)
     else
-        if Cache.GrabGunButton then
-            pcall(function() Cache.GrabGunButton:Destroy() end)
+        if Cache.GrabGunButtonGui then
+            pcall(function() Cache.GrabGunButtonGui:Destroy() end)
+            Cache.GrabGunButtonGui = nil
             Cache.GrabGunButton = nil
         end
+        notify("Grab Gun", "Кнопка удалена", 2)
     end
 end
 
@@ -887,8 +946,7 @@ end
 
 local function getClosestMurderInFov()
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local bestP = nil
-    local bestDist = math.huge
+    local bestP = nil    local bestDist = math.huge
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -999,10 +1057,44 @@ local function teleportToRole(role)
 end
 
 -- ========================================
--- ===== УБИТЬ ВСЕХ (УДАЛЕН) =====
+-- ===== WALL HOP (INFINITY JUMP) =====
 -- ========================================
 
--- Функция удалена по запросу
+local wallHopConnection = nil
+local wallHopLastJump = 0
+
+local function setupWallHop()
+    safeDisconnect(wallHopConnection)
+    wallHopConnection = nil
+    
+    if not Settings.WallHopEnabled then return end
+    
+    wallHopConnection = RunService.Heartbeat:Connect(function()
+        if not LocalPlayer.Character then return end
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            local now = tick()
+            if now - wallHopLastJump > 0.25 then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                wallHopLastJump = now
+            end
+        end
+    end)
+end
+
+local function toggleWallHop(enabled)
+    Settings.WallHopEnabled = enabled
+    if enabled then
+        setupWallHop()
+        notify("Wall Hop", "Включен", 2)
+    else
+        safeDisconnect(wallHopConnection)
+        wallHopConnection = nil
+        notify("Wall Hop", "Выключен", 2)
+    end
+end
 
 -- ========================================
 -- ===== ЗАЩИТА ОТ АФК =====
@@ -1104,7 +1196,13 @@ local function farmLoop()
         if coins >= Settings.AutoFarmCoinLimit then
             if Settings.AutoRespawn then
                 notify("Авто фарм", "Респавн... (" .. coins .. " монет)", 2)
-                pcall(function() LocalPlayer.Character.Humanoid.Health = 0 end)
+                local char = LocalPlayer.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum.Health = 0
+                    end
+                end
                 task.wait(5)
                 continue
             else
@@ -1145,7 +1243,7 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== ПОЛЁТ =====
+-- ===== ПОЛЁТ (БЕЗ СТАДА) =====
 -- ========================================
 
 local flyConn = nil
@@ -1153,24 +1251,6 @@ local isFlying = false
 local flyBV = nil
 local flyBG = nil
 local origGravity = workspace.Gravity
-
-local function createFlyBlock()
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
-    end
-    
-    local block = Instance.new("Part")
-    block.Name = "FlyBlock"
-    block.Size = Vector3.new(0.1, 0.1, 0.1)
-    block.Transparency = 1
-    block.CanCollide = false
-    block.Anchored = true
-    block.Parent = workspace
-    
-    Cache.FlyBlockPart = block
-    return block
-end
 
 local function stopFly()
     isFlying = false
@@ -1184,10 +1264,7 @@ local function stopFly()
     if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
     if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
     
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
-    end
+    removeFlyBlock()
 end
 
 local function startFly()
@@ -1893,14 +1970,18 @@ ChamsSection:Toggle({Title = "Включить Chams", Default = false, Callback
     startMainUpdate()
 end})
 
-ChamsSection:Dropdown({
+ChamsSection:Input({
     Title = "Цвет Chams",
-    Options = {"Purple", "Blue", "Red", "Green"},
-    Default = 1,
-    Callback = function(option)
-        Settings.ChamsColor = option
-        if Settings.ChamsEnabled then
-            updateChamsForAll()
+    Default = "Purple",
+    Placeholder = "Purple, Blue, Red, Green",
+    Callback = function(value)
+        if value == "Purple" or value == "Blue" or value == "Red" or value == "Green" then
+            Settings.ChamsColor = value
+            if Settings.ChamsEnabled then
+                updateChamsForAll()
+            end
+        else
+            notify("Chams", "Доступные цвета: Purple, Blue, Red, Green", 3)
         end
     end
 })
@@ -2011,6 +2092,10 @@ CombatL:Toggle({Title = "Кнопка выстрела", Default = false, Callba
 
 CombatL:Toggle({Title = "Защита от флинга", Default = false, Callback = function(v)
     Settings.AntiFlingEnabled = v; setupAntiFling()
+end})
+
+CombatL:Toggle({Title = "Wall Hop (Infinity Jump)", Default = false, Callback = function(v)
+    toggleWallHop(v)
 end})
 
 CombatR:Toggle({Title = "FOV Аимбот", Default = false, Callback = function(v)
@@ -2164,6 +2249,10 @@ LocalPlayer.CharacterAdded:Connect(function()
     
     if Settings.GrabGunEnabled then
         createGrabGunButton()
+    end
+
+    if Settings.WallHopEnabled then
+        setupWallHop()
     end
 end)
 
