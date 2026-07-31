@@ -121,6 +121,7 @@ local Settings = {
     AntiAFKEnabled = false,
     ShootButtonEnabled = false,
     GrabGunEnabled = false,
+    SheriffAutoShootEnabled = false,
     WallHopEnabled = false,
 }
 
@@ -144,12 +145,12 @@ local Cache = {
     KillAllRunning = false,
     FlyBlockPart = nil,
     ShootButton = nil,
-    GrabGunButton = nil,
     GrabGunGui = nil,
     MobileButtons = {},
     mainConn = nil,
     GrabGunRunning = false,
     WallHopConnection = nil,
+    SheriffAutoShootConnection = nil,
 }
 
 local COLORS = {
@@ -314,12 +315,11 @@ end
 
 local function createGunBeam(startPos, endPos, color, duration)
     duration = duration or 0.2
-    color = color or Color3.fromRGB(180, 50, 255) -- фиолетовый по умолчанию
+    color = color or Color3.fromRGB(180, 50, 255)
 
     local distance = (startPos - endPos).Magnitude
     if distance < 1 then return end
 
-    -- Создаём луч
     local beam = Instance.new("Part")
     beam.Name = "GunBeam"
     beam.Size = Vector3.new(0.15, 0.15, distance)
@@ -331,14 +331,12 @@ local function createGunBeam(startPos, endPos, color, duration)
     beam.Transparency = 0.1
     beam.Parent = workspace
 
-    -- Свет
     local light = Instance.new("PointLight")
     light.Color = color
     light.Brightness = 10
     light.Range = 15
     light.Parent = beam
 
-    -- Анимация исчезновения
     task.spawn(function()
         for i = 1, 10 do
             task.wait(duration / 10)
@@ -402,13 +400,10 @@ local function grabGunAction()
         return
     end
 
-    -- Телепорт к оружию
     hrp.CFrame = handle.CFrame * CFrame.new(0, 2, 2)
     task.wait(0.1)
-    -- Возврат на позицию
     hrp.CFrame = originalCFrame
 
-    -- Подбор
     local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
@@ -421,105 +416,90 @@ local function grabGunAction()
     Cache.GrabGunRunning = false
 end
 
-local function createGrabGunButton()
-    if Cache.GrabGunGui then
-        pcall(function() Cache.GrabGunGui:Destroy() end)
-        Cache.GrabGunGui = nil
-        Cache.GrabGunButton = nil
-    end
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "GrabGunButton"
-    screenGui.ResetOnSpawn = false
-    screenGui.IgnoreGuiInset = true
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 90, 0, 40)
-    button.Position = UDim2.new(0.85, 0, 0.1, 0)
-    button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    button.BackgroundTransparency = 0.1
-    button.TextColor3 = Color3.fromRGB(200, 200, 210)
-    button.Text = "ɢʀᴀʙ ɢᴜɴ"
-    button.TextSize = 13
-    button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 1
-    button.BorderColor3 = Color3.fromRGB(50, 50, 60)
-    button.BorderTransparency = 0.3
-    button.Parent = screenGui
-    button.ClipsDescendants = true
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = button
-
-    -- Перетаскивание (универсальное для мыши и тача)
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-    local clickStartPos = nil
-    
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-            dragStart = input.Position
-            clickStartPos = input.Position
-            startPos = button.Position
-            button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-            button.BackgroundTransparency = 0.1
-        end
-    end)
-
-    button.InputChanged:Connect(function(input)
-        if not dragStart then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            local delta = input.Position - dragStart
-            if delta.Magnitude > 10 then
-                dragging = true
-                button.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-            end
-        end
-    end)
-
-    button.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-            button.BackgroundTransparency = 0.1
-            
-            -- Если не перетаскивали, значит это клик
-            if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
-                grabGunAction()
-            end
-            
-            dragging = false
-            dragStart = nil
-            clickStartPos = nil
-        end
-    end)
-
-    Cache.GrabGunButton = button
-    Cache.GrabGunGui = screenGui
-    return screenGui
-end
-
-local function toggleGrabGunButton()
+local function toggleGrabGun()
     Settings.GrabGunEnabled = not Settings.GrabGunEnabled
     if Settings.GrabGunEnabled then
-        createGrabGunButton()
-        notify("Grab Gun", "Кнопка создана", 2)
-    else
-        if Cache.GrabGunGui then
-            pcall(function() Cache.GrabGunGui:Destroy() end)
-            Cache.GrabGunGui = nil
-            Cache.GrabGunButton = nil
+        grabGunAction()
+        Settings.GrabGunEnabled = false
+    end
+end
+
+-- ========================================
+-- ===== SHERIFF AUTO SHOOT =====
+-- ========================================
+
+local function sheriffAutoShootLoop()
+    while Settings.SheriffAutoShootEnabled do
+        task.wait(0.1)
+        
+        if not LocalPlayer.Character then continue end
+        
+        -- Проверка: есть ли у игрока оружие
+        if not checkGun(LocalPlayer) then continue end
+        
+        local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myHRP then continue end
+        
+        -- Поиск цели (убийца с ножом)
+        local target = nil
+        local targetDist = math.huge
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+            if not player.Character then continue end
+            
+            -- Проверяем, есть ли у игрока нож
+            if checkKnife(player) and isPlayerVisible(player) then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = (myHRP.Position - hrp.Position).Magnitude
+                    if dist < targetDist and dist <= 100 then
+                        targetDist = dist
+                        target = player
+                    end
+                end
+            end
         end
-        notify("Grab Gun", "Кнопка удалена", 2)
+        
+        if target then
+            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            if tHRP then
+                -- Создаём неон-трейс
+                local beamStart = Camera.CFrame.Position
+                local beamEnd = tHRP.Position
+                createGunBeam(beamStart, beamEnd, Color3.fromRGB(180, 50, 255), 0.2)
+                
+                -- Предсказание движения
+                local vel = tHRP.AssemblyLinearVelocity
+                local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
+                
+                -- Наводка камеры
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+                
+                -- Выстрел
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
+                end)
+                
+                notify("AutoShoot", "Выстрел по: " .. target.Name, 1)
+                task.wait(0.3) -- Задержка между выстрелами
+            end
+        end
+    end
+end
+
+local function toggleSheriffAutoShoot(value)
+    Settings.SheriffAutoShootEnabled = value
+    safeDisconnect(Cache.SheriffAutoShootConnection)
+    Cache.SheriffAutoShootConnection = nil
+    
+    if value then
+        Cache.SheriffAutoShootConnection = task.spawn(sheriffAutoShootLoop)
+        notify("Sheriff AutoShoot", "Включен", 2)
+    else
+        notify("Sheriff AutoShoot", "Выключен", 2)
     end
 end
 
@@ -1645,7 +1625,6 @@ local function createShootButton()
     local startPos = nil
     local clickStartPos = nil
     
-    -- Логика перетаскивания и клика
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             isDragging = false
@@ -1680,18 +1659,15 @@ local function createShootButton()
             button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             button.BackgroundTransparency = 0.15
             
-            -- Если не перетаскивали, выполняем действие
             if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
                 task.spawn(function()
                     if not LocalPlayer.Character then return end
                     
-                    -- Проверка оружия
                     if not equipGun() then
                         notify("Выстрел", "Оружие не найдено", 2)
                         return
                     end
                     
-                    -- Поиск цели (убийцы)
                     local target = nil
                     local targetDist = math.huge
                     local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1720,19 +1696,15 @@ local function createShootButton()
                     local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
                     if not tHRP then return end
                     
-                    -- Создаём неон-трейс от камеры к цели
                     local beamStart = Camera.CFrame.Position
                     local beamEnd = tHRP.Position
                     createGunBeam(beamStart, beamEnd, Color3.fromRGB(180, 50, 255), 0.2)
                     
-                    -- Предсказание движения (0.1 сек)
                     local vel = tHRP.AssemblyLinearVelocity
                     local predictedPos = tHRP.Position + Vector3.new(vel.X, 0, vel.Z) * 0.1
                     
-                    -- Наводка камеры
                     Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
                     
-                    -- Выстрел
                     pcall(function()
                         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
                         task.wait(0.05)
@@ -2048,7 +2020,7 @@ end})
 RageM:Button({Title = "Телепорт к убийце", Callback = function() teleportToRole("Убийца") end})
 RageM:Button({Title = "Телепорт к шерифу", Callback = function() teleportToRole("Шериф") end})
 
-RageA:Button({Title = "Grab Gun", Callback = function() toggleGrabGunButton() end})
+RageA:Button({Title = "Grab Gun", Callback = function() toggleGrabGun() end})
 
 -- КОМБАТ
 local CombatTab = Window:Tab({Title = "Комбат", Icon = "crosshair"})
@@ -2056,6 +2028,10 @@ local CombatL = CombatTab:Section({Title = "Комбат", Side = "Left"})
 local CombatR = CombatTab:Section({Title = "Аимбот", Side = "Right"})
 
 CombatL:Toggle({Title = "Кнопка выстрела", Default = false, Callback = function(v) toggleShootButton(v) end})
+
+CombatL:Toggle({Title = "Sheriff AutoShoot", Default = false, Callback = function(v)
+    toggleSheriffAutoShoot(v)
+end})
 
 CombatL:Toggle({Title = "Защита от флинга", Default = false, Callback = function(v)
     Settings.AntiFlingEnabled = v; setupAntiFling()
@@ -2216,6 +2192,10 @@ LocalPlayer.CharacterAdded:Connect(function()
     
     if Settings.WallHopEnabled then
         setupWallHop()
+    end
+    
+    if Settings.SheriffAutoShootEnabled then
+        toggleSheriffAutoShoot(true)
     end
 end)
 
